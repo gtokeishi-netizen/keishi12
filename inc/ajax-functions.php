@@ -21,17 +21,7 @@ if (!defined('ABSPATH')) {
  * =============================================================================
  */
 
-// AI検索機能
-add_action('wp_ajax_gi_ai_search', 'handle_ai_search');
-add_action('wp_ajax_nopriv_gi_ai_search', 'handle_ai_search');
-
-// AIチャット機能  
-add_action('wp_ajax_gi_ai_chat', 'handle_ai_chat_request');
-add_action('wp_ajax_nopriv_gi_ai_chat', 'handle_ai_chat_request');
-
-// Grant AI質問機能
-add_action('wp_ajax_handle_grant_ai_question', 'handle_grant_ai_question');
-add_action('wp_ajax_nopriv_handle_grant_ai_question', 'handle_grant_ai_question');
+// AI機能は削除されました - シンプル検索のみ利用可能
 
 // 音声入力機能
 add_action('wp_ajax_gi_voice_input', 'gi_ajax_process_voice_input');
@@ -118,8 +108,8 @@ function handle_ai_search() {
         // Enhanced検索実行
         $search_result = gi_enhanced_semantic_search($query, $filter, $page, $per_page);
         
-        // AI応答生成（コンテキスト付き）
-        $ai_response = gi_generate_contextual_ai_response($query, $search_result['grants'], $filter);
+        // 検索結果の簡単な説明
+        $ai_response = gi_generate_simple_search_summary($search_result['count'], $query);
         
         // キーワード抽出
         $keywords = gi_extract_keywords($query);
@@ -188,8 +178,8 @@ function handle_ai_chat_request() {
         // 意図分析
         $intent = gi_analyze_user_intent($message);
         
-        // コンテキスト付きAI応答生成
-        $ai_response = gi_generate_contextual_chat_response($message, $context, $intent);
+        // 簡単なチャット応答
+        $ai_response = gi_generate_simple_chat_response($message, $intent);
         
         // チャット履歴保存
         gi_save_chat_history($session_id, 'user', $message, $intent);
@@ -258,8 +248,8 @@ function handle_grant_ai_question() {
         // 質問の意図分析
         $question_intent = gi_analyze_grant_question_intent($question, $grant_details);
         
-        // AI応答を生成（助成金コンテキスト付き）
-        $ai_response = gi_generate_enhanced_grant_response($post_id, $question, $grant_details, $question_intent);
+        // 助成金に関する簡単な応答
+        $ai_response = gi_generate_simple_grant_response($question, $grant_details, $question_intent);
         
         // フォローアップ質問を生成
         $suggestions = gi_generate_smart_grant_suggestions($post_id, $question, $question_intent);
@@ -587,29 +577,13 @@ function gi_format_grant_result($post_id, $relevance_score = 0.8) {
 }
 
 /**
- * コンテキスト付きAI応答生成
+ * 簡単な検索結果サマリー生成
  */
-function gi_generate_contextual_ai_response($query, $grants, $filter = 'all') {
-    $openai = GI_OpenAI_Integration::getInstance();
-    
-    if ($openai->is_configured()) {
-        $context = [
-            'grants' => array_slice($grants, 0, 3), // 上位3件のコンテキスト
-            'filter' => $filter,
-            'total_count' => count($grants)
-        ];
-        
-        $prompt = "検索クエリ: {$query}\n結果数: " . count($grants) . "件";
-        
-        try {
-            return $openai->generate_response($prompt, $context);
-        } catch (Exception $e) {
-            error_log('AI Response Error: ' . $e->getMessage());
-            // フォールバック
-        }
+function gi_generate_simple_search_summary($count, $query) {
+    if ($count == 0) {
+        return "「{$query}」に該当する助成金が見つかりませんでした。他のキーワードでお試しください。";
     }
-    
-    return gi_generate_fallback_response($query, $grants, $filter);
+    return "「{$query}」で{$count}件の助成金が見つかりました。詳細をご確認ください。";
 }
 
 /**
@@ -671,28 +645,18 @@ function gi_generate_fallback_response($query, $grants, $filter = 'all') {
 }
 
 /**
- * Enhanced Grant応答生成
+ * 簡単な助成金質問応答生成
  */
-function gi_generate_enhanced_grant_response($post_id, $question, $grant_details, $intent) {
-    $openai = GI_OpenAI_Integration::getInstance();
-    
-    if ($openai->is_configured()) {
-        $context = [
-            'grant_details' => $grant_details,
-            'intent' => $intent
-        ];
-        
-        $prompt = "助成金「{$grant_details['title']}」について：\n質問: {$question}";
-        
-        try {
-            return $openai->generate_response($prompt, $context);
-        } catch (Exception $e) {
-            error_log('Enhanced Grant Response Error: ' . $e->getMessage());
-            // フォールバック
-        }
-    }
-    
-    return gi_generate_fallback_grant_response($post_id, $question, $grant_details, $intent);
+function gi_generate_simple_grant_response($question, $grant_details, $intent) {
+    $title = $grant_details['title'] ?? '助成金';
+    return "「{$title}」に関するご質問ありがとうございます。詳細な情報は公式サイトや問い合わせ先にご確認ください。";
+}
+
+/**
+ * 簡単なチャット応答生成
+ */
+function gi_generate_simple_chat_response($message, $intent) {
+    return "ご質問ありがとうございます。助成金に関する詳細については、各助成金の詳細ページをご確認いただくか、実施機関にお問い合わせください。";
 }
 
 /**

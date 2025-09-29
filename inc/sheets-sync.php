@@ -2,9 +2,9 @@
 /**
  * Google Sheets Sync Integration
  * 
- * 助成金カスタム投稿とGoogle Sheetsの完全同期システム
- * - 双方向同期（WordPress ⟷ Google Sheets）
- * - リアルタイム更新
+ * 助成金カスタム投稿とGoogle Sheetsの手動同期システム
+ * - 双方向同期（WordPress ⟷ Google Sheets）手動実行のみ
+ * - 手動更新（自動同期は無効化済み）
  * - CRUD操作の完全対応
  * - ACFフィールドとカテゴリの同期
  * 
@@ -76,42 +76,19 @@ class GoogleSheetsSync {
     }
     
     /**
-     * WordPressフックの追加
+     * WordPressフックの追加（手動同期のみ）
      */
     private function add_hooks() {
-        // 自動同期が有効な場合のみフックを追加
-        if ($this->is_auto_sync_enabled()) {
-            // 投稿の保存・更新時にスプレッドシートを更新
-            add_action('save_post_grant', array($this, 'sync_post_to_sheets'), 10, 3);
-            
-            // 投稿の削除時にスプレッドシートからも削除
-            add_action('before_delete_post', array($this, 'delete_post_from_sheets'));
-            
-            // 投稿ステータス変更時の同期
-            add_action('transition_post_status', array($this, 'handle_post_status_change'), 10, 3);
-        }
+        // 自動同期機能は削除しました - 手動同期のみ利用可能
         
-        // 定期的な双方向同期（設定に応じて）
-        if ($this->is_scheduled_sync_enabled()) {
-            add_action('gi_sheets_sync_cron', array($this, 'full_bidirectional_sync'));
-            
-            // Cronスケジュールの設定
-            if (!wp_next_scheduled('gi_sheets_sync_cron')) {
-                $interval = $this->get_sync_interval();
-                wp_schedule_event(time(), $interval, 'gi_sheets_sync_cron');
-            }
-        } else {
-            // 自動同期が無効の場合はCronを削除
-            wp_clear_scheduled_hook('gi_sheets_sync_cron');
-        }
+        // 既存のCronスケジュールをクリア
+        wp_clear_scheduled_hook('gi_sheets_sync_cron');
         
-        // AJAX ハンドラー（常に有効）
+        // AJAX ハンドラー（手動同期用のみ）
         add_action('wp_ajax_gi_manual_sheets_sync', array($this, 'ajax_manual_sync'));
         add_action('wp_ajax_gi_test_sheets_connection', array($this, 'ajax_test_connection'));
         add_action('wp_ajax_gi_setup_field_validation', array($this, 'ajax_setup_field_validation'));
         add_action('wp_ajax_gi_test_specific_fields', array($this, 'ajax_test_specific_fields'));
-        add_action('wp_ajax_gi_update_sync_settings', array($this, 'ajax_update_sync_settings'));
-        add_action('wp_ajax_gi_get_sync_settings', array($this, 'ajax_get_sync_settings'));
     }
     
     /**
@@ -545,15 +522,15 @@ class GoogleSheetsSync {
             $tags = wp_get_post_terms($post_id, 'grant_tag', array('fields' => 'names'));
             $row[] = (is_array($tags) && !is_wp_error($tags)) ? implode(', ', $tags) : '';
             
-            // 新規フィールド (X-AD列) ★31列対応
+            // 新規フィールド (X-AD列) ★31列対応（修正版）
             $new_acf_fields = array(
-                'external_link',           // X: 外部リンク
-                'region_notes',            // Y: 地域に関する備考
-                'required_documents',      // Z: 必要書類
-                'adoption_rate',           // AA: 採択率（%）
-                'application_difficulty',  // AB: 申請難易度
-                'target_expenses',         // AC: 対象経費
-                'subsidy_rate'             // AD: 補助率
+                'external_link',               // X: 外部リンク
+                'area_notes',                  // Y: 地域に関する備考（修正）
+                'required_documents_detailed', // Z: 必要書類（修正）
+                'adoption_rate',               // AA: 採択率（%）
+                'difficulty_level',            // AB: 申請難易度（修正）
+                'eligible_expenses_detailed',  // AC: 対象経費（修正）
+                'subsidy_rate_detailed'        // AD: 補助率（修正）
             );
             
             foreach ($new_acf_fields as $field) {
@@ -639,78 +616,7 @@ class GoogleSheetsSync {
         }
     }
     
-    /**
-     * 投稿保存時のスプレッドシート同期
-     */
-    public function sync_post_to_sheets($post_id, $post, $update) {
-        try {
-            gi_log_error('sync_post_to_sheets started', array('post_id' => $post_id, 'post_type' => $post->post_type));
-            
-            // 自動保存やリビジョンを除外
-            if (defined('DOING_AUTOSAVE') && DOING_AUTOSAVE) {
-                gi_log_error('Skipping autosave', array('post_id' => $post_id));
-                return;
-            }
-            
-            if (wp_is_post_revision($post_id)) {
-                gi_log_error('Skipping revision', array('post_id' => $post_id));
-                return;
-            }
-            
-            // 助成金投稿のみ対象
-            if ($post->post_type !== 'grant') {
-                gi_log_error('Skipping non-grant post', array('post_id' => $post_id, 'post_type' => $post->post_type));
-                return;
-            }
-            
-            // 投稿データを変換
-            gi_log_error('Converting post to sheet row', array('post_id' => $post_id));
-            $row_data = $this->convert_post_to_sheet_row($post_id);
-            if (!$row_data) {
-                throw new Exception('Failed to convert post data to sheet row');
-            }
-            
-            gi_log_error('Row data converted', array('post_id' => $post_id, 'columns' => count($row_data)));
-            
-            // スプレッドシートで該当行を検索
-            gi_log_error('Reading sheet data to find existing row');
-            $sheet_data = $this->read_sheet_data();
-            
-            if ($sheet_data === false) {
-                throw new Exception('Failed to read sheet data');
-            }
-            
-            gi_log_error('Sheet data read', array('rows' => count($sheet_data)));
-            
-            $row_number = $this->find_post_row_in_sheet($post_id, $sheet_data);
-            gi_log_error('Row search result', array('post_id' => $post_id, 'row_number' => $row_number));
-            
-            if ($row_number) {
-                // 既存行を更新 - 31列対応（AE列まで）
-                $range = $this->sheet_name . '!A' . $row_number . ':AE' . $row_number;
-                gi_log_error('Updating existing row', array('post_id' => $post_id, 'range' => $range));
-                $success = $this->write_sheet_data($range, array($row_data));
-            } else {
-                // 新しい行を追加
-                gi_log_error('Appending new row', array('post_id' => $post_id));
-                $success = $this->append_sheet_data($row_data);
-            }
-            
-            if ($success) {
-                gi_log_error('Post synced to sheets successfully', array('post_id' => $post_id));
-            } else {
-                throw new Exception('Failed to write data to sheets');
-            }
-            
-        } catch (Exception $e) {
-            gi_log_error('sync_post_to_sheets failed', array(
-                'post_id' => $post_id,
-                'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString()
-            ));
-            throw $e; // Re-throw to propagate the error up
-        }
-    }
+    // 自動同期メソッドは削除されました - 手動同期のみ利用可能
     
     /**
      * スプレッドシートから投稿IDの行番号を検索
@@ -729,36 +635,7 @@ class GoogleSheetsSync {
         return false;
     }
     
-    /**
-     * 投稿削除時のスプレッドシート同期
-     */
-    public function delete_post_from_sheets($post_id) {
-        $post = get_post($post_id);
-        if (!$post || $post->post_type !== 'grant') {
-            return;
-        }
-        
-        $sheet_data = $this->read_sheet_data();
-        $row_number = $this->find_post_row_in_sheet($post_id, $sheet_data);
-        
-        if ($row_number) {
-            // 行を削除（実際はステータスを'deleted'に変更）
-            $range = $this->sheet_name . '!E' . $row_number; // ステータス列
-            $this->write_sheet_data($range, array(array('deleted')));
-        }
-    }
-    
-    /**
-     * 投稿ステータス変更時の処理
-     */
-    public function handle_post_status_change($new_status, $old_status, $post) {
-        if ($post->post_type !== 'grant') {
-            return;
-        }
-        
-        // ステータス変更時は即座に同期
-        $this->sync_post_to_sheets($post->ID, $post, true);
-    }
+    // 自動削除・ステータス変更同期メソッドは削除されました
     
     /**
      * スプレッドシートからWordPressへの同期
@@ -919,15 +796,15 @@ class GoogleSheetsSync {
                     wp_set_post_terms($post_id, $tags, 'grant_tag');
                 }
                 
-                // 新規ACFフィールドの同期 (X-AD列) ★31列対応
+                // 新規ACFフィールドの同期 (X-AD列) ★31列対応（修正版）
                 $new_acf_fields = array(
-                    'external_link' => isset($row[23]) ? $row[23] : '',           // X列: 外部リンク
-                    'region_notes' => isset($row[24]) ? $row[24] : '',            // Y列: 地域に関する備考
-                    'required_documents' => isset($row[25]) ? $row[25] : '',      // Z列: 必要書類
-                    'adoption_rate' => isset($row[26]) ? floatval($row[26]) : 0,  // AA列: 採択率（%）
-                    'application_difficulty' => isset($row[27]) ? $row[27] : 'normal', // AB列: 申請難易度
-                    'target_expenses' => isset($row[28]) ? $row[28] : '',         // AC列: 対象経費
-                    'subsidy_rate' => isset($row[29]) ? $row[29] : '',            // AD列: 補助率
+                    'external_link' => isset($row[23]) ? $row[23] : '',                   // X列: 外部リンク
+                    'area_notes' => isset($row[24]) ? $row[24] : '',                      // Y列: 地域に関する備考（修正）
+                    'required_documents_detailed' => isset($row[25]) ? $row[25] : '',     // Z列: 必要書類（修正）
+                    'adoption_rate' => isset($row[26]) ? floatval($row[26]) : 0,          // AA列: 採択率（%）
+                    'difficulty_level' => isset($row[27]) ? $row[27] : '中級',             // AB列: 申請難易度（修正）
+                    'eligible_expenses_detailed' => isset($row[28]) ? $row[28] : '',      // AC列: 対象経費（修正）
+                    'subsidy_rate_detailed' => isset($row[29]) ? $row[29] : '',           // AD列: 補助率（修正）
                 );
                 
                 // 新規ACFフィールドを更新
@@ -1526,7 +1403,7 @@ class GoogleSheetsSync {
                 'field_name' => '組織タイプ',
                 'field_key' => 'organization_type', 
                 'type' => 'select',
-                'choices' => array('national', 'prefecture', 'city', 'public_org', 'private_org', 'foundation', 'jgrants', 'other'),
+                'choices' => array('national', 'prefecture', 'city', 'public_org', 'private_org', 'foundation', 'other'),
                 'description' => '実施組織の分類'
             ),
             'N' => array(
@@ -1865,161 +1742,11 @@ class GoogleSheetsSync {
         return $column;
     }
     
-    /**
-     * 自動同期設定の確認
-     */
-    private function is_auto_sync_enabled() {
-        return get_option('gi_sheets_auto_sync_enabled', true); // デフォルト: 有効
-    }
+    // 自動同期設定メソッドは削除されました - 手動同期のみ
     
-    /**
-     * スケジュール同期設定の確認
-     */
-    private function is_scheduled_sync_enabled() {
-        return get_option('gi_sheets_scheduled_sync_enabled', true); // デフォルト: 有効
-    }
+    // 自動同期設定AJAXハンドラーは削除されました - 手動同期のみ
     
-    /**
-     * 同期間隔の取得
-     */
-    private function get_sync_interval() {
-        return get_option('gi_sheets_sync_interval', 'every_5_minutes'); // デフォルト: 5分間隔
-    }
-    
-    /**
-     * 同期設定の更新AJAXハンドラー
-     */
-    public function ajax_update_sync_settings() {
-        try {
-            gi_log_error('AJAX sync settings update request received', array(
-                'user_id' => get_current_user_id(),
-                'post_data' => $_POST
-            ));
-            
-            // Nonce検証
-            check_ajax_referer('gi_sheets_nonce', 'nonce');
-            
-            // 権限チェック
-            if (!current_user_can('manage_options')) {
-                gi_log_error('Permission denied for sync settings update', array('user_id' => get_current_user_id()));
-                wp_send_json_error('設定を変更する権限がありません');
-                return;
-            }
-            
-            // 設定値の取得とサニタイズ
-            $auto_sync_enabled = isset($_POST['auto_sync_enabled']) ? (bool)$_POST['auto_sync_enabled'] : false;
-            $scheduled_sync_enabled = isset($_POST['scheduled_sync_enabled']) ? (bool)$_POST['scheduled_sync_enabled'] : false;
-            $sync_interval = isset($_POST['sync_interval']) ? sanitize_text_field($_POST['sync_interval']) : 'every_5_minutes';
-            
-            // 有効な間隔かチェック
-            $valid_intervals = array('every_5_minutes', 'every_15_minutes', 'hourly', 'twicedaily', 'daily');
-            if (!in_array($sync_interval, $valid_intervals)) {
-                $sync_interval = 'every_5_minutes';
-            }
-            
-            // 設定を保存
-            update_option('gi_sheets_auto_sync_enabled', $auto_sync_enabled);
-            update_option('gi_sheets_scheduled_sync_enabled', $scheduled_sync_enabled);
-            update_option('gi_sheets_sync_interval', $sync_interval);
-            
-            // Cronスケジュールの更新
-            wp_clear_scheduled_hook('gi_sheets_sync_cron');
-            if ($scheduled_sync_enabled) {
-                wp_schedule_event(time(), $sync_interval, 'gi_sheets_sync_cron');
-            }
-            
-            gi_log_error('Sync settings updated successfully', array(
-                'auto_sync_enabled' => $auto_sync_enabled,
-                'scheduled_sync_enabled' => $scheduled_sync_enabled,
-                'sync_interval' => $sync_interval
-            ));
-            
-            wp_send_json_success(array(
-                'message' => '同期設定が正常に保存されました',
-                'settings' => array(
-                    'auto_sync_enabled' => $auto_sync_enabled,
-                    'scheduled_sync_enabled' => $scheduled_sync_enabled,
-                    'sync_interval' => $sync_interval,
-                    'next_scheduled' => $scheduled_sync_enabled ? wp_next_scheduled('gi_sheets_sync_cron') : false
-                )
-            ));
-            
-        } catch (Exception $e) {
-            gi_log_error('Sync settings update failed', array(
-                'error' => $e->getMessage(),
-                'file' => $e->getFile(),
-                'line' => $e->getLine(),
-                'trace' => $e->getTraceAsString()
-            ));
-            wp_send_json_error('設定の保存に失敗しました: ' . $e->getMessage());
-        }
-    }
-    
-    /**
-     * 同期設定の取得AJAXハンドラー
-     */
-    public function ajax_get_sync_settings() {
-        try {
-            gi_log_error('AJAX sync settings get request received', array(
-                'user_id' => get_current_user_id()
-            ));
-            
-            // Nonce検証
-            check_ajax_referer('gi_sheets_nonce', 'nonce');
-            
-            // 権限チェック
-            if (!current_user_can('edit_posts')) {
-                gi_log_error('Permission denied for sync settings get', array('user_id' => get_current_user_id()));
-                wp_send_json_error('設定を取得する権限がありません');
-                return;
-            }
-            
-            $settings = array(
-                'auto_sync_enabled' => $this->is_auto_sync_enabled(),
-                'scheduled_sync_enabled' => $this->is_scheduled_sync_enabled(),
-                'sync_interval' => $this->get_sync_interval(),
-                'next_scheduled' => wp_next_scheduled('gi_sheets_sync_cron'),
-                'field_mappings' => $this->get_field_validation_mappings(),
-                'sync_status' => array(
-                    'last_sync' => get_option('gi_sheets_last_sync_time', '未実行'),
-                    'last_sync_result' => get_option('gi_sheets_last_sync_result', 'unknown'),
-                    'sync_count_today' => get_option('gi_sheets_sync_count_' . date('Y-m-d'), 0)
-                )
-            );
-            
-            gi_log_error('Sync settings retrieved successfully', array(
-                'auto_sync' => $settings['auto_sync_enabled'],
-                'scheduled_sync' => $settings['scheduled_sync_enabled'],
-                'interval' => $settings['sync_interval']
-            ));
-            
-            wp_send_json_success($settings);
-            
-        } catch (Exception $e) {
-            gi_log_error('Sync settings get failed', array(
-                'error' => $e->getMessage(),
-                'file' => $e->getFile(),
-                'line' => $e->getLine(),
-                'trace' => $e->getTraceAsString()
-            ));
-            wp_send_json_error('設定の取得に失敗しました: ' . $e->getMessage());
-        }
-    }
-    
-    /**
-     * Cronスケジュールに追加間隔を定義
-     */
-    public static function add_cron_schedules($schedules) {
-        $schedules['every_5_minutes'] = array(
-            'interval' => 300, // 5分 = 300秒
-            'display' => '5分間隔'
-        );
-        $schedules['every_15_minutes'] = array(
-            'interval' => 900, // 15分 = 900秒
-            'display' => '15分間隔'
-        );
-        return $schedules;
-    }
+    // Cronスケジュール機能は削除されました - 手動同期のみ
     
     /**
      * 同期結果をログに記録
@@ -2058,8 +1785,7 @@ class GoogleSheetsSync {
     }
 }
 
-// Cronスケジュールフィルターを追加
-add_filter('cron_schedules', array('GoogleSheetsSync', 'add_cron_schedules'));
+// Cronスケジュールは削除されました
 
 // インスタンスを初期化
 function gi_init_google_sheets_sync() {

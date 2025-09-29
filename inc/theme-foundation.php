@@ -88,16 +88,7 @@ function gi_enqueue_scripts() {
     // メインJavaScript
     wp_enqueue_script('gi-main', get_template_directory_uri() . '/assets/js/main.js', array('jquery'), GI_THEME_VERSION, true);
     
-    // Enhanced AI Generator (管理画面でのみ)
-    if (is_admin()) {
-        wp_enqueue_script('gi-enhanced-ai', get_template_directory_uri() . '/assets/js/enhanced-ai-generator.js', array('jquery'), GI_THEME_VERSION, true);
-        
-        // AI用の追加AJAX設定
-        wp_localize_script('gi-enhanced-ai', 'gi_ajax', array(
-            'ajax_url' => admin_url('admin-ajax.php'),
-            'nonce' => wp_create_nonce('gi_ai_nonce')
-        ));
-    }
+    // AI機能は削除されました
     
     // AJAX設定
     wp_localize_script('gi-main', 'gi_ajax', array(
@@ -649,51 +640,7 @@ function gi_admin_styles() {
         .grant-status-active { background: #7ad03a; color: white; }
         .grant-status-soon { background: #ffba00; color: white; }
         .grant-status-expired { background: #dd3333; color: white; }
-        
-        /* Enhanced AI Generator Styles */
-        .gi-ai-button-container {
-            margin-top: 8px;
-        }
-        
-        .gi-ai-button {
-            margin-right: 5px;
-            margin-bottom: 5px;
-        }
-        
-        .gi-ai-button:hover {
-            transform: translateY(-1px);
-            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
-        }
-        
-        .gi-ai-panel {
-            animation: slideInRight 0.3s ease;
-        }
-        
-        @keyframes slideInRight {
-            from {
-                transform: translateX(100%);
-                opacity: 0;
-            }
-            to {
-                transform: translateX(0);
-                opacity: 1;
-            }
-        }
-        
-        .gi-ai-notification {
-            animation: slideInDown 0.3s ease;
-        }
-        
-        @keyframes slideInDown {
-            from {
-                transform: translateY(-100%);
-                opacity: 0;
-            }
-            to {
-                transform: translateY(0);
-                opacity: 1;
-            }
-        }
+
     </style>';
 }
 add_action('admin_head', 'gi_admin_styles');

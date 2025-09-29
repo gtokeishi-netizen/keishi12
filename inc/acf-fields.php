@@ -362,13 +362,13 @@ function gi_register_acf_field_groups() {
             
             array(
                 'key' => 'field_regional_note',
-                'label' => '地域に関する備考',
+                'label' => '地域に関する備考（旧）',
                 'name' => 'regional_note',
                 'type' => 'textarea',
-                'instructions' => '地域制限に関する詳細や特記事項があれば入力してください。',
+                'instructions' => '※このフィールドは「地域に関する備考（area_notes）」に移行されました。新規作成時はarea_notesをご使用ください。',
                 'required' => 0,
                 'rows' => 2,
-                'placeholder' => '例: 本社または主要事業所が対象地域内にある事業者に限る',
+                'placeholder' => '※area_notesフィールドをご使用ください',
                 'wrapper' => array(
                     'width' => '25',
                 ),
@@ -428,6 +428,100 @@ function gi_register_acf_field_groups() {
                 'required' => 0,
                 'wrapper' => array(
                     'width' => '50',
+                ),
+            ),
+            
+            // ========== 新規追加フィールド（Z-AD列対応） ==========
+            array(
+                'key' => 'field_area_notes',
+                'label' => '地域に関する備考',
+                'name' => 'area_notes',
+                'type' => 'textarea',
+                'instructions' => '地域制限や対象地域に関する詳細な備考を入力してください。',
+                'required' => 0,
+                'rows' => 3,
+                'placeholder' => '例: 本社または主要事業所が対象地域内にある事業者限定',
+                'wrapper' => array(
+                    'width' => '50',
+                ),
+            ),
+            
+            array(
+                'key' => 'field_required_documents_detailed',
+                'label' => '必要書類（詳細）',
+                'name' => 'required_documents_detailed',
+                'type' => 'wysiwyg',
+                'instructions' => '申請に必要な書類の詳細なリストを入力してください。',
+                'required' => 0,
+                'tabs' => 'visual',
+                'toolbar' => 'basic',
+                'media_upload' => 0,
+                'wrapper' => array(
+                    'width' => '50',
+                ),
+            ),
+            
+            array(
+                'key' => 'field_adoption_rate',
+                'label' => '採択率（%）',
+                'name' => 'adoption_rate',
+                'type' => 'number',
+                'instructions' => '過去の実績に基づく採択率を入力してください（0-100の範囲）。',
+                'required' => 0,
+                'default_value' => 0,
+                'min' => 0,
+                'max' => 100,
+                'step' => 1,
+                'append' => '%',
+                'wrapper' => array(
+                    'width' => '25',
+                ),
+            ),
+            
+            array(
+                'key' => 'field_difficulty_level',
+                'label' => '申請難易度',
+                'name' => 'difficulty_level',
+                'type' => 'select',
+                'instructions' => '申請の難易度レベルを選択してください。',
+                'required' => 0,
+                'choices' => array(
+                    '初級' => '初級（比較的簡単）',
+                    '中級' => '中級（標準的）',
+                    '上級' => '上級（難しい）',
+                    '非常に高い' => '非常に高い（専門的）',
+                ),
+                'default_value' => '中級',
+                'wrapper' => array(
+                    'width' => '25',
+                ),
+            ),
+            
+            array(
+                'key' => 'field_eligible_expenses_detailed',
+                'label' => '対象経費（詳細）',
+                'name' => 'eligible_expenses_detailed',
+                'type' => 'wysiwyg',
+                'instructions' => '助成対象となる経費の詳細を入力してください。',
+                'required' => 0,
+                'tabs' => 'visual',
+                'toolbar' => 'basic',
+                'media_upload' => 0,
+                'wrapper' => array(
+                    'width' => '25',
+                ),
+            ),
+            
+            array(
+                'key' => 'field_subsidy_rate_detailed',
+                'label' => '補助率（詳細）',
+                'name' => 'subsidy_rate_detailed',
+                'type' => 'text',
+                'instructions' => '補助率の詳細な説明を入力してください。',
+                'required' => 0,
+                'placeholder' => '例: 1/2以内（上限100万円）、定額50万円',
+                'wrapper' => array(
+                    'width' => '25',
                 ),
             ),
             
@@ -623,7 +717,7 @@ add_filter('acf/load_field/name=grant_success_rate', function($field) {
 });
 
 /**
- * 投稿保存時の自動処理
+ * 投稿保存時の自動処理（新規フィールド対応）
  */
 add_action('save_post', function($post_id) {
     // 助成金投稿タイプのみ対象
@@ -650,20 +744,26 @@ add_action('save_post', function($post_id) {
         update_field('max_amount', $formatted_amount, $post_id);
     }
     
-    // 完全連携：タクソノミーからACFフィールドへの同期（後方互換性）
-    // 都道府県タクソノミーからACFフィールドを更新
-    $prefecture_terms = wp_get_post_terms($post_id, 'grant_prefecture', array('fields' => 'names'));
-    if (!is_wp_error($prefecture_terms) && !empty($prefecture_terms)) {
-        // 最初の都道府県名をACFフィールドにも保存（後方互換性）
-        update_field('prefecture_name', $prefecture_terms[0], $post_id);
+    // 採択率の検証（0-100の範囲内に制限）
+    $adoption_rate = get_field('adoption_rate', $post_id);
+    if (!empty($adoption_rate)) {
+        $adoption_rate = max(0, min(100, intval($adoption_rate)));
+        update_field('adoption_rate', $adoption_rate, $post_id);
     }
     
-    // 市町村タクソノミーからACFフィールドを更新
-    $municipality_terms = wp_get_post_terms($post_id, 'grant_municipality', array('fields' => 'names'));
-    if (!is_wp_error($municipality_terms) && !empty($municipality_terms)) {
-        // 市町村名をACFフィールドにも保存（後方互換性、改行区切り）
-        update_field('target_municipality', implode("\n", $municipality_terms), $post_id);
+    // 新規フィールドのデフォルト値設定
+    if (empty(get_field('difficulty_level', $post_id))) {
+        update_field('difficulty_level', '中級', $post_id);
     }
+    
+    // 完全連携対応：タクソノミーを優先し、重複ACFフィールドは削除
+    // 都道府県・市町村はタクソノミーで管理（ACFフィールド不要）
+    delete_field('prefecture_name', $post_id);
+    delete_field('target_prefecture', $post_id); 
+    delete_field('target_municipality', $post_id);
+    
+    // Google Sheets同期用のシート更新日を設定
+    update_field('sheet_updated', current_time('Y-m-d H:i:s'), $post_id);
 });
 
 /**
@@ -723,28 +823,7 @@ function gi_get_prefecture_name_by_code($code) {
     return isset($prefectures[$code]) ? $prefectures[$code] : '';
 }
 
-/**
- * 管理画面でのフィールド表示改善
- */
-add_action('admin_head', function() {
-    ?>
-    <style>
-        .acf-field[data-name="views_count"] input {
-            background-color: #f5f5f5;
-            color: #666;
-        }
-        .acf-field[data-name="admin_notes"] {
-            border-left: 3px solid #2196F3;
-            padding-left: 15px;
-        }
-        .acf-field[data-name="is_featured"] .acf-true-false {
-            background: #fff3cd;
-            padding: 10px;
-            border-radius: 5px;
-        }
-    </style>
-    <?php
-});
+
 
 /**
  * =============================================================================
@@ -780,7 +859,7 @@ function gi_ensure_acf_compatibility() {
 add_action('init', 'gi_ensure_acf_compatibility', 1);
 
 /**
- * フィールド値の検証
+ * フィールド値の検証（新規フィールド対応）
  */
 add_filter('acf/validate_value/name=max_amount_numeric', function($valid, $value, $field, $input) {
     if ($value < 0) {
@@ -795,3 +874,79 @@ add_filter('acf/validate_value/name=grant_success_rate', function($valid, $value
     }
     return $valid;
 }, 10, 4);
+
+add_filter('acf/validate_value/name=adoption_rate', function($valid, $value, $field, $input) {
+    if ($value < 0 || $value > 100) {
+        $valid = '採択率は0〜100の範囲で入力してください。';
+    }
+    return $valid;
+}, 10, 4);
+
+/**
+ * 新規フィールドの管理画面表示改善
+ */
+add_action('admin_head', function() {
+    ?>
+    <style>
+        .acf-field[data-name="views_count"] input {
+            background-color: #f5f5f5;
+            color: #666;
+        }
+        .acf-field[data-name="admin_notes"] {
+            border-left: 3px solid #2196F3;
+            padding-left: 15px;
+        }
+        .acf-field[data-name="is_featured"] .acf-true-false {
+            background: #fff3cd;
+            padding: 10px;
+            border-radius: 5px;
+        }
+        .acf-field[data-name="adoption_rate"] {
+            background: #e8f5e8;
+            padding: 10px;
+            border-radius: 5px;
+        }
+        .acf-field[data-name="difficulty_level"] {
+            background: #fff8dc;
+            padding: 10px;
+            border-radius: 5px;
+        }
+        .acf-field[data-name="area_notes"] {
+            background: #f0f8ff;
+            padding: 10px;
+            border-radius: 5px;
+        }
+    </style>
+    <?php
+}, 5);
+
+/**
+ * 新規フィールドのためのヘルパー関数
+ */
+function gi_get_difficulty_level_label($level) {
+    $levels = array(
+        '初級' => '初級（比較的簡単）',
+        '中級' => '中級（標準的）',
+        '上級' => '上級（難しい）',
+        '非常に高い' => '非常に高い（専門的）'
+    );
+    
+    return isset($levels[$level]) ? $levels[$level] : $level;
+}
+
+/**
+ * 採択率に応じた表示スタイルを取得
+ */
+function gi_get_adoption_rate_style($rate) {
+    $rate = intval($rate);
+    
+    if ($rate >= 80) {
+        return 'high'; // 高採択率
+    } elseif ($rate >= 50) {
+        return 'medium'; // 中採択率
+    } elseif ($rate >= 20) {
+        return 'low'; // 低採択率
+    } else {
+        return 'very-low'; // 非常に低い採択率
+    }
+}
