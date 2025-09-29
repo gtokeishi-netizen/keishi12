@@ -15,6 +15,344 @@ if (!defined('ABSPATH')) {
 
 /**
  * =============================================================================
+ * 0. AI機能サポート関数
+ * =============================================================================
+ */
+
+/**
+ * OpenAI APIキーを取得
+ */
+if (!function_exists('gi_get_openai_api_key')) {
+    function gi_get_openai_api_key() {
+        return get_option('gi_openai_api_key', '');
+    }
+}
+
+/**
+ * OpenAI APIキーを設定
+ */
+if (!function_exists('gi_set_openai_api_key')) {
+    function gi_set_openai_api_key($api_key) {
+        return update_option('gi_openai_api_key', sanitize_text_field($api_key));
+    }
+}
+
+/**
+ * OpenAI APIキーを削除
+ */
+if (!function_exists('gi_delete_openai_api_key')) {
+    function gi_delete_openai_api_key() {
+        return delete_option('gi_openai_api_key');
+    }
+}
+
+/**
+ * OpenAI APIキーの有効性チェック
+ */
+if (!function_exists('gi_validate_openai_api_key')) {
+    function gi_validate_openai_api_key($api_key = null) {
+        if (!$api_key) {
+            $api_key = gi_get_openai_api_key();
+        }
+        
+        if (empty($api_key)) {
+            return false;
+        }
+        
+        // APIキーの基本形式チェック
+        if (!preg_match('/^sk-[a-zA-Z0-9]{20,}$/', $api_key)) {
+            return false;
+        }
+        
+        return true;
+    }
+}
+
+/**
+ * AI機能の有効性チェック
+ */
+if (!function_exists('gi_is_ai_enabled')) {
+    function gi_is_ai_enabled() {
+        $settings = get_option('gi_ai_settings', []);
+        $api_key = gi_get_openai_api_key();
+        
+        return !empty($api_key) && gi_validate_openai_api_key($api_key);
+    }
+}
+
+/**
+ * AI機能の能力チェック
+ */
+if (!function_exists('gi_check_ai_capabilities')) {
+    function gi_check_ai_capabilities() {
+        $api_key = gi_get_openai_api_key();
+        $settings = get_option('gi_ai_settings', []);
+        
+        return [
+            'openai_configured' => !empty($api_key) && gi_validate_openai_api_key($api_key),
+            'ai_search_enabled' => isset($settings['enable_ai_search']) ? $settings['enable_ai_search'] : 0,
+            'voice_input_enabled' => isset($settings['enable_voice_input']) ? $settings['enable_voice_input'] : 0,
+            'ai_chat_enabled' => isset($settings['enable_ai_chat']) ? $settings['enable_ai_chat'] : 0
+        ];
+    }
+}
+
+/**
+ * AI設定のデフォルト値を取得
+ */
+if (!function_exists('gi_get_ai_default_settings')) {
+    function gi_get_ai_default_settings() {
+        return [
+            'enable_ai_search' => 1,
+            'enable_voice_input' => 1,
+            'enable_ai_chat' => 1,
+            'max_search_results' => 20,
+            'ai_response_timeout' => 30
+        ];
+    }
+}
+
+/**
+ * シンプルな検索要約を生成
+ */
+if (!function_exists('gi_generate_simple_search_summary')) {
+    function gi_generate_simple_search_summary($count, $query) {
+        if ($count == 0) {
+            return "「{$query}」に関連する助成金が見つかりませんでした。検索キーワードを変更してお試しください。";
+        } else if ($count == 1) {
+            return "「{$query}」に関連する助成金を1件見つけました。詳細をご確認ください。";
+        } else {
+            return "「{$query}」に関連する助成金を{$count}件見つけました。条件に合うものをお選びください。";
+        }
+    }
+}
+
+/**
+ * シンプルなチャット応答を生成
+ */
+if (!function_exists('gi_generate_simple_chat_response')) {
+    function gi_generate_simple_chat_response($message, $intent) {
+        // 基本的な応答パターン
+        $responses = [
+            'greeting' => 'こんにちは！助成金に関するご質問をお気軽にどうぞ。',
+            'search' => 'どのような助成金をお探しですか？業種や地域、金額などの条件をお教えください。',
+            'help' => '助成金の検索、申請方法、条件確認など、どのようなことでもサポートいたします。',
+            'default' => 'ご質問ありがとうございます。より具体的にお聞かせいただけると、適切な助成金をご案内できます。'
+        ];
+        
+        return isset($responses[$intent]) ? $responses[$intent] : $responses['default'];
+    }
+}
+
+/**
+ * シンプルな助成金応答を生成
+ */
+if (!function_exists('gi_generate_simple_grant_response')) {
+    function gi_generate_simple_grant_response($question, $grant_details, $intent) {
+        $grant_title = isset($grant_details['title']) ? $grant_details['title'] : '助成金';
+        
+        if (strpos($question, '申請') !== false || strpos($question, '手続') !== false) {
+            return "{$grant_title}の申請手続きについては、実施機関の公式サイトで最新の申請要項をご確認ください。";
+        } else if (strpos($question, '金額') !== false || strpos($question, '補助') !== false) {
+            return "{$grant_title}の補助金額については詳細ページでご確認いただけます。";
+        } else if (strpos($question, '期限') !== false || strpos($question, '締切') !== false) {
+            return "{$grant_title}の申請期限については、最新情報を公式サイトでご確認ください。";
+        } else {
+            return "{$grant_title}について詳しくは、詳細ページをご覧ください。";
+        }
+    }
+}
+
+/**
+ * 応答の信頼度スコアを計算
+ */
+if (!function_exists('gi_calculate_response_confidence')) {
+    function gi_calculate_response_confidence($question, $response) {
+        // シンプルな信頼度計算（実際のAI機能が無効の場合）
+        $score = 0.7; // デフォルト信頼度
+        
+        if (strlen($response) > 50) {
+            $score += 0.1;
+        }
+        
+        if (strpos($response, '詳細') !== false || strpos($response, '公式') !== false) {
+            $score += 0.1;
+        }
+        
+        return min(1.0, $score);
+    }
+}
+
+/**
+ * チャット履歴を保存
+ */
+if (!function_exists('gi_save_chat_history')) {
+    function gi_save_chat_history($session_id, $role, $message) {
+        global $wpdb;
+        
+        $table_name = $wpdb->prefix . 'gi_search_history';
+        
+        // テーブルが存在する場合のみ保存
+        if ($wpdb->get_var("SHOW TABLES LIKE '{$table_name}'") == $table_name) {
+            $wpdb->insert(
+                $table_name,
+                [
+                    'session_id' => $session_id,
+                    'search_query' => $message,
+                    'search_filter' => $role,
+                    'results_count' => 1,
+                    'created_at' => current_time('mysql')
+                ],
+                ['%s', '%s', '%s', '%d', '%s']
+            );
+        }
+    }
+}
+
+/**
+ * 助成金質問履歴を保存
+ */
+if (!function_exists('gi_save_grant_question_history')) {
+    function gi_save_grant_question_history($post_id, $question, $response, $session_id) {
+        // 簡易的な履歴保存（メタデータとして）
+        $history = get_post_meta($post_id, '_gi_question_history', true);
+        if (!is_array($history)) {
+            $history = [];
+        }
+        
+        $history[] = [
+            'question' => $question,
+            'response' => $response,
+            'session_id' => $session_id,
+            'timestamp' => current_time('timestamp')
+        ];
+        
+        // 最新10件のみ保持
+        $history = array_slice($history, -10);
+        
+        update_post_meta($post_id, '_gi_question_history', $history);
+    }
+}
+
+/**
+ * OpenAI統合クラスの簡易版
+ */
+if (!class_exists('GI_OpenAI_Integration')) {
+    class GI_OpenAI_Integration {
+        private static $instance = null;
+        
+        public static function getInstance() {
+            if (self::$instance === null) {
+                self::$instance = new self();
+            }
+            return self::$instance;
+        }
+        
+        public function is_configured() {
+            $api_key = gi_get_openai_api_key();
+            return !empty($api_key) && gi_validate_openai_api_key($api_key);
+        }
+        
+        public function transcribe_audio($audio_data) {
+            // 簡易実装：実際のAI機能が無効の場合のフォールバック
+            return '音声認識機能は現在利用できません。テキストで入力してください。';
+        }
+        
+        public function generate_response($prompt, $context = []) {
+            // 簡易実装：基本的な応答生成
+            if (strpos($prompt, '助成金') !== false || strpos($prompt, '補助金') !== false) {
+                return '助成金に関するご質問ありがとうございます。詳しい情報は各助成金の詳細ページをご確認ください。';
+            } else {
+                return 'ご質問ありがとうございます。より具体的な情報については、お問い合わせフォームからご連絡ください。';
+            }
+        }
+        
+        public function analyze_search_intent($query) {
+            // 簡易実装：検索意図の分析
+            $intent = 'general';
+            
+            if (strpos($query, 'こんにちは') !== false || strpos($query, 'はじめまして') !== false) {
+                $intent = 'greeting';
+            } else if (strpos($query, '探して') !== false || strpos($query, '検索') !== false) {
+                $intent = 'search';
+            } else if (strpos($query, 'ヘルプ') !== false || strpos($query, '使い方') !== false) {
+                $intent = 'help';
+            }
+            
+            return $intent;
+        }
+    }
+}
+
+/**
+ * AI強化検索を実行
+ */
+if (!function_exists('gi_perform_ai_enhanced_search')) {
+    function gi_perform_ai_enhanced_search($query, $filter, $page, $per_page) {
+        // フォールバック：通常の検索を実行
+        return gi_perform_standard_search($query, $filter, $page, $per_page);
+    }
+}
+
+/**
+ * 標準検索を実行
+ */
+if (!function_exists('gi_perform_standard_search')) {
+    function gi_perform_standard_search($query, $filter, $page, $per_page) {
+        $args = [
+            'post_type' => 'grant',
+            'post_status' => 'publish',
+            's' => $query,
+            'paged' => $page,
+            'posts_per_page' => $per_page,
+            'orderby' => 'relevance',
+            'order' => 'DESC'
+        ];
+        
+        // フィルター適用
+        if (!empty($filter) && $filter !== 'all') {
+            $args['meta_query'] = [
+                [
+                    'key' => 'grant_category',
+                    'value' => $filter,
+                    'compare' => 'LIKE'
+                ]
+            ];
+        }
+        
+        $search_query = new WP_Query($args);
+        
+        $results = [];
+        if ($search_query->have_posts()) {
+            while ($search_query->have_posts()) {
+                $search_query->the_post();
+                $post_id = get_the_ID();
+                
+                $results[] = [
+                    'id' => $post_id,
+                    'title' => get_the_title(),
+                    'excerpt' => get_the_excerpt(),
+                    'permalink' => get_permalink(),
+                    'organization' => get_field('organization', $post_id),
+                    'max_amount' => get_field('max_amount', $post_id),
+                    'deadline' => get_field('deadline', $post_id),
+                    'relevance_score' => 1.0
+                ];
+            }
+        }
+        wp_reset_postdata();
+        
+        return [
+            'results' => $results,
+            'total_count' => $search_query->found_posts,
+            'total_pages' => $search_query->max_num_pages,
+            'method' => 'standard_search'
+        ];
+    }
+}
+
+/**
+ * =============================================================================
  * 1. 管理画面カスタマイズ（基本機能）
  * =============================================================================
  */
