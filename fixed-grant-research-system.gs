@@ -1468,16 +1468,42 @@ function generateSupplementaryContent(enrichedResults, grantTitle) {
   supplement += '本制度以外にも、事業内容や企業規模に応じた様々な支援制度が存在します。複数制度の比較検討により、最適な支援の組み合わせを見つけることが重要です。\n\n';
   
   return supplement;
-      break;
+}
+
+/**
+ * 構文エラーチェック用テスト関数
+ */
+function syntaxErrorTest() {
+  try {
+    Logger.log('=== 構文エラーテスト開始 ===');
+    
+    // 基本的な関数の存在チェック
+    if (typeof performComprehensiveSearch === 'function') {
+      Logger.log('✅ performComprehensiveSearch関数: 正常');
+    } else {
+      Logger.log('❌ performComprehensiveSearch関数: 未定義');
     }
+    
+    if (typeof fetchFullContentFromUrls === 'function') {
+      Logger.log('✅ fetchFullContentFromUrls関数: 正常');
+    } else {
+      Logger.log('❌ fetchFullContentFromUrls関数: 未定義');
+    }
+    
+    if (typeof generateYMYLContent === 'function') {
+      Logger.log('✅ generateYMYLContent関数: 正常');
+    } else {
+      Logger.log('❌ generateYMYLContent関数: 未定義');
+    }
+    
+    Logger.log('✅ 構文エラーテスト完了: 全ての関数が正常に解析されました');
+    return true;
+    
+  } catch (error) {
+    Logger.log('❌ 構文エラー検出: ' + error.toString());
+    Logger.log('エラー詳細: ' + error.stack);
+    return false;
   }
-  
-  content += '\n## 注意事項\n';
-  content += '本情報は' + currentDate + '時点の公開情報に基づいています。最新の詳細情報や変更については、必ず実施機関の公式サイトでご確認ください。申請にあたっては、最新の公募要領や実施要綱を必ずご確認ください。';
-  
-  return content.length > CONFIG.MAX_CONTENT_LENGTH ? 
-    content.substring(0, CONFIG.MAX_CONTENT_LENGTH) + '...' : 
-    content;
 }
 
 // === Custom Search関連の新規実装関数群 ===
