@@ -1,17 +1,354 @@
 <?php
 /**
- * Grant Insight Perfect - Admin Customization File (修正版)
- *
- * 管理画面のカスタマイズ（スクリプト読込、投稿一覧へのカラム追加、
- * メタボックス追加、カスタムメニュー追加など）を担当します。
- *
- * @package Grant_Insight_Perfect
- * @version 8.2.0 (Clean版 - Excel/Sheets機能完全削除)
+ * Grant Insight Perfect - Admin Functions (Consolidated)
+ * 
+ * Consolidated admin functionality including customization, metaboxes, and admin UI.
+ * 
+ * @package Grant_Insight_Perfect  
+ * @version 9.0.0 (Consolidated Edition)
  */
 
 // セキュリティチェック
 if (!defined('ABSPATH')) {
     exit;
+}
+
+/**
+ * =============================================================================
+ * 0. AI機能サポート関数
+ * =============================================================================
+ */
+
+/**
+ * OpenAI APIキーを取得
+ */
+if (!function_exists('gi_get_openai_api_key')) {
+    function gi_get_openai_api_key() {
+        return get_option('gi_openai_api_key', '');
+    }
+}
+
+/**
+ * OpenAI APIキーを設定
+ */
+if (!function_exists('gi_set_openai_api_key')) {
+    function gi_set_openai_api_key($api_key) {
+        return update_option('gi_openai_api_key', sanitize_text_field($api_key));
+    }
+}
+
+/**
+ * OpenAI APIキーを削除
+ */
+if (!function_exists('gi_delete_openai_api_key')) {
+    function gi_delete_openai_api_key() {
+        return delete_option('gi_openai_api_key');
+    }
+}
+
+/**
+ * OpenAI APIキーの有効性チェック
+ */
+if (!function_exists('gi_validate_openai_api_key')) {
+    function gi_validate_openai_api_key($api_key = null) {
+        if (!$api_key) {
+            $api_key = gi_get_openai_api_key();
+        }
+        
+        if (empty($api_key)) {
+            return false;
+        }
+        
+        // APIキーの基本形式チェック
+        if (!preg_match('/^sk-[a-zA-Z0-9]{20,}$/', $api_key)) {
+            return false;
+        }
+        
+        return true;
+    }
+}
+
+/**
+ * AI機能の有効性チェック
+ */
+if (!function_exists('gi_is_ai_enabled')) {
+    function gi_is_ai_enabled() {
+        $settings = get_option('gi_ai_settings', []);
+        $api_key = gi_get_openai_api_key();
+        
+        return !empty($api_key) && gi_validate_openai_api_key($api_key);
+    }
+}
+
+/**
+ * AI機能の能力チェック
+ */
+if (!function_exists('gi_check_ai_capabilities')) {
+    function gi_check_ai_capabilities() {
+        $api_key = gi_get_openai_api_key();
+        $settings = get_option('gi_ai_settings', []);
+        
+        return [
+            'openai_configured' => !empty($api_key) && gi_validate_openai_api_key($api_key),
+            'ai_search_enabled' => isset($settings['enable_ai_search']) ? $settings['enable_ai_search'] : 0,
+            'voice_input_enabled' => isset($settings['enable_voice_input']) ? $settings['enable_voice_input'] : 0,
+            'ai_chat_enabled' => isset($settings['enable_ai_chat']) ? $settings['enable_ai_chat'] : 0
+        ];
+    }
+}
+
+/**
+ * AI設定のデフォルト値を取得
+ */
+if (!function_exists('gi_get_ai_default_settings')) {
+    function gi_get_ai_default_settings() {
+        return [
+            'enable_ai_search' => 1,
+            'enable_voice_input' => 1,
+            'enable_ai_chat' => 1,
+            'max_search_results' => 20,
+            'ai_response_timeout' => 30
+        ];
+    }
+}
+
+/**
+ * シンプルな検索要約を生成
+ */
+if (!function_exists('gi_generate_simple_search_summary')) {
+    function gi_generate_simple_search_summary($count, $query) {
+        if ($count == 0) {
+            return "「{$query}」に関連する助成金が見つかりませんでした。検索キーワードを変更してお試しください。";
+        } else if ($count == 1) {
+            return "「{$query}」に関連する助成金を1件見つけました。詳細をご確認ください。";
+        } else {
+            return "「{$query}」に関連する助成金を{$count}件見つけました。条件に合うものをお選びください。";
+        }
+    }
+}
+
+/**
+ * シンプルなチャット応答を生成
+ */
+if (!function_exists('gi_generate_simple_chat_response')) {
+    function gi_generate_simple_chat_response($message, $intent) {
+        // 基本的な応答パターン
+        $responses = [
+            'greeting' => 'こんにちは！助成金に関するご質問をお気軽にどうぞ。',
+            'search' => 'どのような助成金をお探しですか？業種や地域、金額などの条件をお教えください。',
+            'help' => '助成金の検索、申請方法、条件確認など、どのようなことでもサポートいたします。',
+            'default' => 'ご質問ありがとうございます。より具体的にお聞かせいただけると、適切な助成金をご案内できます。'
+        ];
+        
+        return isset($responses[$intent]) ? $responses[$intent] : $responses['default'];
+    }
+}
+
+/**
+ * シンプルな助成金応答を生成
+ */
+if (!function_exists('gi_generate_simple_grant_response')) {
+    function gi_generate_simple_grant_response($question, $grant_details, $intent) {
+        $grant_title = isset($grant_details['title']) ? $grant_details['title'] : '助成金';
+        
+        if (strpos($question, '申請') !== false || strpos($question, '手続') !== false) {
+            return "{$grant_title}の申請手続きについては、実施機関の公式サイトで最新の申請要項をご確認ください。";
+        } else if (strpos($question, '金額') !== false || strpos($question, '補助') !== false) {
+            return "{$grant_title}の補助金額については詳細ページでご確認いただけます。";
+        } else if (strpos($question, '期限') !== false || strpos($question, '締切') !== false) {
+            return "{$grant_title}の申請期限については、最新情報を公式サイトでご確認ください。";
+        } else {
+            return "{$grant_title}について詳しくは、詳細ページをご覧ください。";
+        }
+    }
+}
+
+/**
+ * 応答の信頼度スコアを計算
+ */
+if (!function_exists('gi_calculate_response_confidence')) {
+    function gi_calculate_response_confidence($question, $response) {
+        // シンプルな信頼度計算（実際のAI機能が無効の場合）
+        $score = 0.7; // デフォルト信頼度
+        
+        if (strlen($response) > 50) {
+            $score += 0.1;
+        }
+        
+        if (strpos($response, '詳細') !== false || strpos($response, '公式') !== false) {
+            $score += 0.1;
+        }
+        
+        return min(1.0, $score);
+    }
+}
+
+/**
+ * チャット履歴を保存
+ */
+if (!function_exists('gi_save_chat_history')) {
+    function gi_save_chat_history($session_id, $role, $message) {
+        global $wpdb;
+        
+        $table_name = $wpdb->prefix . 'gi_search_history';
+        
+        // テーブルが存在する場合のみ保存
+        if ($wpdb->get_var("SHOW TABLES LIKE '{$table_name}'") == $table_name) {
+            $wpdb->insert(
+                $table_name,
+                [
+                    'session_id' => $session_id,
+                    'search_query' => $message,
+                    'search_filter' => $role,
+                    'results_count' => 1,
+                    'created_at' => current_time('mysql')
+                ],
+                ['%s', '%s', '%s', '%d', '%s']
+            );
+        }
+    }
+}
+
+/**
+ * 助成金質問履歴を保存
+ */
+if (!function_exists('gi_save_grant_question_history')) {
+    function gi_save_grant_question_history($post_id, $question, $response, $session_id) {
+        // 簡易的な履歴保存（メタデータとして）
+        $history = get_post_meta($post_id, '_gi_question_history', true);
+        if (!is_array($history)) {
+            $history = [];
+        }
+        
+        $history[] = [
+            'question' => $question,
+            'response' => $response,
+            'session_id' => $session_id,
+            'timestamp' => current_time('timestamp')
+        ];
+        
+        // 最新10件のみ保持
+        $history = array_slice($history, -10);
+        
+        update_post_meta($post_id, '_gi_question_history', $history);
+    }
+}
+
+/**
+ * OpenAI統合クラスの簡易版
+ */
+if (!class_exists('GI_OpenAI_Integration')) {
+    class GI_OpenAI_Integration {
+        private static $instance = null;
+        
+        public static function getInstance() {
+            if (self::$instance === null) {
+                self::$instance = new self();
+            }
+            return self::$instance;
+        }
+        
+        public function is_configured() {
+            $api_key = gi_get_openai_api_key();
+            return !empty($api_key) && gi_validate_openai_api_key($api_key);
+        }
+        
+        public function transcribe_audio($audio_data) {
+            // 簡易実装：実際のAI機能が無効の場合のフォールバック
+            return '音声認識機能は現在利用できません。テキストで入力してください。';
+        }
+        
+        public function generate_response($prompt, $context = []) {
+            // 簡易実装：基本的な応答生成
+            if (strpos($prompt, '助成金') !== false || strpos($prompt, '補助金') !== false) {
+                return '助成金に関するご質問ありがとうございます。詳しい情報は各助成金の詳細ページをご確認ください。';
+            } else {
+                return 'ご質問ありがとうございます。より具体的な情報については、お問い合わせフォームからご連絡ください。';
+            }
+        }
+        
+        public function analyze_search_intent($query) {
+            // 簡易実装：検索意図の分析
+            $intent = 'general';
+            
+            if (strpos($query, 'こんにちは') !== false || strpos($query, 'はじめまして') !== false) {
+                $intent = 'greeting';
+            } else if (strpos($query, '探して') !== false || strpos($query, '検索') !== false) {
+                $intent = 'search';
+            } else if (strpos($query, 'ヘルプ') !== false || strpos($query, '使い方') !== false) {
+                $intent = 'help';
+            }
+            
+            return $intent;
+        }
+    }
+}
+
+/**
+ * AI強化検索を実行
+ */
+if (!function_exists('gi_perform_ai_enhanced_search')) {
+    function gi_perform_ai_enhanced_search($query, $filter, $page, $per_page) {
+        // フォールバック：通常の検索を実行
+        return gi_perform_standard_search($query, $filter, $page, $per_page);
+    }
+}
+
+/**
+ * 標準検索を実行
+ */
+if (!function_exists('gi_perform_standard_search')) {
+    function gi_perform_standard_search($query, $filter, $page, $per_page) {
+        $args = [
+            'post_type' => 'grant',
+            'post_status' => 'publish',
+            's' => $query,
+            'paged' => $page,
+            'posts_per_page' => $per_page,
+            'orderby' => 'relevance',
+            'order' => 'DESC'
+        ];
+        
+        // フィルター適用
+        if (!empty($filter) && $filter !== 'all') {
+            $args['meta_query'] = [
+                [
+                    'key' => 'grant_category',
+                    'value' => $filter,
+                    'compare' => 'LIKE'
+                ]
+            ];
+        }
+        
+        $search_query = new WP_Query($args);
+        
+        $results = [];
+        if ($search_query->have_posts()) {
+            while ($search_query->have_posts()) {
+                $search_query->the_post();
+                $post_id = get_the_ID();
+                
+                $results[] = [
+                    'id' => $post_id,
+                    'title' => get_the_title(),
+                    'excerpt' => get_the_excerpt(),
+                    'permalink' => get_permalink(),
+                    'organization' => get_field('organization', $post_id),
+                    'max_amount' => get_field('max_amount', $post_id),
+                    'deadline' => get_field('deadline', $post_id),
+                    'relevance_score' => 1.0
+                ];
+            }
+        }
+        wp_reset_postdata();
+        
+        return [
+            'results' => $results,
+            'total_count' => $search_query->found_posts,
+            'total_pages' => $search_query->max_num_pages,
+            'method' => 'standard_search'
+        ];
+    }
 }
 
 /**
@@ -981,10 +1318,300 @@ function gi_ai_statistics_page() {
 
 /**
  * =============================================================================
- * 9. Excel・Google Sheets機能は完全削除済み
+ * 9. POST METABOXES - Custom Fields for Grant Posts
  * =============================================================================
  */
-// Excel管理とGoogle Sheets機能は完全削除済み
+
+class GrantPostMetaboxes {
+    
+    private static $instance = null;
+    
+    public static function getInstance() {
+        if (self::$instance === null) {
+            self::$instance = new self();
+        }
+        return self::$instance;
+    }
+    
+    private function __construct() {
+        add_action('add_meta_boxes', array($this, 'add_grant_metaboxes'));
+        add_action('save_post', array($this, 'save_grant_metadata'));
+        add_action('admin_enqueue_scripts', array($this, 'enqueue_metabox_scripts'));
+    }
+    
+    /**
+     * 助成金投稿用メタボックスを追加
+     */
+    public function add_grant_metaboxes() {
+        // WordPress標準のタクソノミーメタボックスを置き換え
+        remove_meta_box('grant_categorydiv', 'grant', 'side');
+        remove_meta_box('grant_prefecturediv', 'grant', 'side');
+        remove_meta_box('grant_municipalitydiv', 'grant', 'side');
+        
+        // カスタムタクソノミーメタボックス
+        add_meta_box(
+            'grant-category-metabox',
+            '📂 助成金カテゴリー',
+            array($this, 'render_category_metabox'),
+            'grant',
+            'side',
+            'high'
+        );
+        
+        add_meta_box(
+            'grant-prefecture-metabox',
+            '📍 対象都道府県',
+            array($this, 'render_prefecture_metabox'),
+            'grant',
+            'side',
+            'high'
+        );
+        
+        add_meta_box(
+            'grant-municipality-metabox',
+            '🏛️ 対象市町村',
+            array($this, 'render_municipality_metabox'),
+            'grant',
+            'side',
+            'high'
+        );
+    }
+    
+    /**
+     * 助成金カテゴリーメタボックス
+     */
+    public function render_category_metabox($post) {
+        wp_nonce_field('grant_taxonomy_nonce', 'grant_taxonomy_nonce_field');
+        
+        $categories = get_terms(array(
+            'taxonomy' => 'grant_category',
+            'hide_empty' => false
+        ));
+        
+        $post_categories = wp_get_post_terms($post->ID, 'grant_category', array('fields' => 'ids'));
+        
+        ?>
+        <div class="grant-metabox-content">
+            <div id="grant-category-selection">
+                <?php if (!empty($categories) && !is_wp_error($categories)): ?>
+                    <?php foreach ($categories as $category): ?>
+                        <label style="display: block; margin-bottom: 8px;">
+                            <input type="checkbox" 
+                                   name="grant_categories[]" 
+                                   value="<?php echo esc_attr($category->term_id); ?>"
+                                   <?php checked(in_array($category->term_id, $post_categories)); ?>>
+                            <?php echo esc_html($category->name); ?>
+                            <span style="color: #666;">（<?php echo $category->count; ?>件）</span>
+                        </label>
+                    <?php endforeach; ?>
+                <?php else: ?>
+                    <p style="color: #666;">カテゴリーがありません。</p>
+                <?php endif; ?>
+                
+                <div style="margin-top: 15px; padding-top: 10px; border-top: 1px solid #ddd;">
+                    <input type="text" id="new_grant_category" placeholder="新しいカテゴリー名" style="width: 70%;">
+                    <button type="button" id="add_grant_category" class="button button-small">追加</button>
+                </div>
+            </div>
+        </div>
+        <?php
+    }
+
+    /**
+     * 対象都道府県メタボックス
+     */
+    public function render_prefecture_metabox($post) {
+        $prefectures = get_terms(array(
+            'taxonomy' => 'grant_prefecture',
+            'hide_empty' => false,
+            'orderby' => 'name'
+        ));
+        
+        $post_prefectures = wp_get_post_terms($post->ID, 'grant_prefecture', array('fields' => 'ids'));
+        
+        ?>
+        <div class="grant-metabox-content">
+            <div id="grant-prefecture-selection" style="max-height: 300px; overflow-y: auto;">
+                <p>
+                    <label>
+                        <input type="checkbox" id="select_all_prefectures"> 
+                        <strong>全国対象（全て選択）</strong>
+                    </label>
+                </p>
+                <div style="border-top: 1px solid #ddd; padding-top: 8px; margin-top: 8px;">
+                    <?php if (!empty($prefectures) && !is_wp_error($prefectures)): ?>
+                        <?php foreach ($prefectures as $prefecture): ?>
+                            <label style="display: block; margin-bottom: 6px;">
+                                <input type="checkbox" 
+                                       name="grant_prefectures[]" 
+                                       value="<?php echo esc_attr($prefecture->term_id); ?>"
+                                       class="prefecture-checkbox"
+                                       <?php checked(in_array($prefecture->term_id, $post_prefectures)); ?>>
+                                <?php echo esc_html($prefecture->name); ?>
+                                <span style="color: #666;">（<?php echo $prefecture->count; ?>件）</span>
+                            </label>
+                        <?php endforeach; ?>
+                    <?php else: ?>
+                        <p style="color: #666;">都道府県データがありません。</p>
+                    <?php endif; ?>
+                </div>
+            </div>
+        </div>
+        <?php
+    }
+    
+    /**
+     * 対象市町村メタボックス
+     */
+    public function render_municipality_metabox($post) {
+        $municipalities = get_terms(array(
+            'taxonomy' => 'grant_municipality',
+            'hide_empty' => false,
+            'orderby' => 'name'
+        ));
+        
+        $post_municipalities = wp_get_post_terms($post->ID, 'grant_municipality', array('fields' => 'ids'));
+        
+        ?>
+        <div class="grant-metabox-content">
+            <div style="margin-bottom: 10px;">
+                <input type="text" id="municipality_search" placeholder="市町村を検索..." style="width: 100%;">
+            </div>
+            
+            <div id="grant-municipality-selection" style="max-height: 250px; overflow-y: auto;">
+                <?php if (!empty($municipalities) && !is_wp_error($municipalities)): ?>
+                    <?php foreach ($municipalities as $municipality): ?>
+                        <label style="display: block; margin-bottom: 6px;" class="municipality-option">
+                            <input type="checkbox" 
+                                   name="grant_municipalities[]" 
+                                   value="<?php echo esc_attr($municipality->term_id); ?>"
+                                   <?php checked(in_array($municipality->term_id, $post_municipalities)); ?>>
+                            <?php echo esc_html($municipality->name); ?>
+                            <span style="color: #666;">（<?php echo $municipality->count; ?>件）</span>
+                        </label>
+                    <?php endforeach; ?>
+                <?php else: ?>
+                    <p style="color: #666;">市町村データがありません。</p>
+                <?php endif; ?>
+                
+                <div style="margin-top: 15px; padding-top: 10px; border-top: 1px solid #ddd;">
+                    <input type="text" id="new_municipality" placeholder="新しい市町村名" style="width: 70%;">
+                    <button type="button" id="add_municipality" class="button button-small">追加</button>
+                </div>
+            </div>
+        </div>
+        <?php
+    }
+    
+    /**
+     * メタボックス用のスクリプトを読み込み
+     */
+    public function enqueue_metabox_scripts($hook) {
+        if (!in_array($hook, array('post.php', 'post-new.php'))) {
+            return;
+        }
+        
+        global $post_type;
+        if ($post_type !== 'grant') {
+            return;
+        }
+        
+        wp_enqueue_script('grant-metaboxes', get_template_directory_uri() . '/assets/js/grant-metaboxes.js', array('jquery'), '1.0.0', true);
+        wp_enqueue_style('grant-metaboxes', get_template_directory_uri() . '/assets/css/admin-metaboxes.css', array(), '1.0.0');
+        
+        wp_localize_script('grant-metaboxes', 'grantMetaboxes', array(
+            'ajaxurl' => admin_url('admin-ajax.php'),
+            'nonce' => wp_create_nonce('grant_metaboxes_nonce')
+        ));
+    }
+    
+    /**
+     * メタデータとタクソノミーの保存
+     */
+    public function save_grant_metadata($post_id) {
+        if (defined('DOING_AUTOSAVE') && DOING_AUTOSAVE) return;
+        if (wp_is_post_revision($post_id)) return;
+        if (get_post_type($post_id) !== 'grant') return;
+        
+        if (!isset($_POST['grant_taxonomy_nonce_field']) || 
+            !wp_verify_nonce($_POST['grant_taxonomy_nonce_field'], 'grant_taxonomy_nonce')) {
+            return;
+        }
+        
+        if (!current_user_can('edit_post', $post_id)) return;
+        
+        // タクソノミーの保存
+        if (isset($_POST['grant_categories'])) {
+            $categories = array_map('intval', $_POST['grant_categories']);
+            wp_set_post_terms($post_id, $categories, 'grant_category');
+        } else {
+            wp_set_post_terms($post_id, array(), 'grant_category');
+        }
+        
+        if (isset($_POST['grant_prefectures'])) {
+            $prefectures = array_map('intval', $_POST['grant_prefectures']);
+            wp_set_post_terms($post_id, $prefectures, 'grant_prefecture');
+        } else {
+            wp_set_post_terms($post_id, array(), 'grant_prefecture');
+        }
+        
+        if (isset($_POST['grant_municipalities'])) {
+            $municipalities = array_map('intval', $_POST['grant_municipalities']);
+            wp_set_post_terms($post_id, $municipalities, 'grant_municipality');
+        } else {
+            wp_set_post_terms($post_id, array(), 'grant_municipality');
+        }
+    }
+}
+
+// タクソノミータームを追加するAJAXハンドラー
+add_action('wp_ajax_gi_add_taxonomy_term', function() {
+    check_ajax_referer('grant_metaboxes_nonce', 'nonce');
+    
+    if (!current_user_can('manage_categories')) {
+        wp_send_json_error('権限がありません');
+        return;
+    }
+    
+    $taxonomy = sanitize_text_field($_POST['taxonomy']);
+    $term_name = sanitize_text_field($_POST['term_name']);
+    
+    $allowed_taxonomies = array('grant_category', 'grant_municipality', 'grant_prefecture');
+    if (!in_array($taxonomy, $allowed_taxonomies)) {
+        wp_send_json_error('無効なタクソノミーです');
+        return;
+    }
+    
+    if (empty($term_name)) {
+        wp_send_json_error('タerm名が入力されていません');
+        return;
+    }
+    
+    $existing_term = term_exists($term_name, $taxonomy);
+    if ($existing_term) {
+        wp_send_json_error('このタームは既に存在します');
+        return;
+    }
+    
+    $result = wp_insert_term($term_name, $taxonomy);
+    
+    if (is_wp_error($result)) {
+        wp_send_json_error('タームの作成に失敗しました: ' . $result->get_error_message());
+        return;
+    }
+    
+    wp_send_json_success(array(
+        'term_id' => $result['term_id'],
+        'name' => $term_name,
+        'taxonomy' => $taxonomy
+    ));
+});
+
+// Initialize metaboxes
+function gi_init_grant_metaboxes() {
+    return GrantPostMetaboxes::getInstance();
+}
+add_action('init', 'gi_init_grant_metaboxes');
 
 
 

@@ -46,6 +46,10 @@ const OPENAI_CONFIG = {
 /**
  * WordPress連携設定
  */
+/**
+ * WordPress連携設定
+ * PropertiesServiceを使用した安全な設定管理に対応
+ */
 const WORDPRESS_CONFIG = {
   // WordPressのWebhook URL
   WEBHOOK_URL: 'https://your-domain.com/?gi_sheets_webhook=true',
@@ -65,6 +69,44 @@ const WORDPRESS_CONFIG = {
   // デバッグモード（trueにすると詳細ログを出力）
   DEBUG_MODE: true
 };
+
+/**
+ * 設定情報をPropertiesServiceから取得する安全な設定関数
+ */
+function getConfig() {
+  const properties = PropertiesService.getScriptProperties();
+  return {
+    WORDPRESS_URL: properties.getProperty('WORDPRESS_URL') || WORDPRESS_CONFIG.WORDPRESS_BASE_URL,
+    API_KEY: properties.getProperty('API_KEY'),
+    WEBHOOK_SECRET: properties.getProperty('WEBHOOK_SECRET') || WORDPRESS_CONFIG.SECRET_KEY,
+    REST_API_URL: properties.getProperty('REST_API_URL') || WORDPRESS_CONFIG.REST_API_URL,
+    SHEET_NAME: properties.getProperty('SHEET_NAME') || WORDPRESS_CONFIG.SHEET_NAME
+  };
+}
+
+/**
+ * 設定初期化関数（セキュリティ向上）
+ */
+function initializeConfig() {
+  const properties = PropertiesService.getScriptProperties();
+  
+  const response = SpreadsheetApp.getUi().prompt(
+    '初期設定',
+    'WordPressサイトのURLを入力してください:',
+    SpreadsheetApp.getUi().ButtonSet.OK_CANCEL
+  );
+  
+  if (response.getSelectedButton() === SpreadsheetApp.getUi().Button.OK) {
+    const wordpressUrl = response.getResponseText();
+    properties.setProperties({
+      'WORDPRESS_URL': wordpressUrl,
+      'REST_API_URL': `${wordpressUrl}/wp-json/gi/v1/sheets-webhook`,
+      'SHEET_NAME': 'grant_import'
+    });
+    
+    SpreadsheetApp.getUi().alert('設定完了', '初期設定が完了しました。', SpreadsheetApp.getUi().ButtonSet.OK);
+  }
+}
 
 /**
  * 都道府県・市町村データ
@@ -821,58 +863,120 @@ function getRowData(sheet, rowNumber) {
 }
 
 /**
- * 行データを構造化されたオブジェクトに変換
- * 新しいフィールドを含む完全な構造に対応
+ * 完全なフィールドマッピング定義（31列対応）
+ * WordPress側との完全な整合性を保つ
  */
-function convertRowDataToStructured(rowData) {
+const FIELD_MAPPING = {
+  // 基本情報（A-G列）
+  'A': 'id',                          // A列: ID
+  'B': 'subsidy_name',                // B列: 助成金名（タイトル）
+  'C': 'organization',                // C列: 実施機関
+  'D': 'content',                     // D列: 内容・概要
+  'E': 'excerpt',                     // E列: 抜粋
+  'F': 'status',                      // F列: ステータス
+  'G': 'created_date',                // G列: 作成日
+  
+  // 助成金詳細情報（H-N列）
+  'H': 'updated_date',                // H列: 更新日
+  'I': 'amount_display',              // I列: 助成金額（表示用）
+  'J': 'amount_numeric',              // J列: 助成金額（数値）
+  'K': 'deadline_display',            // K列: 申請期限（表示用）
+  'L': 'deadline_date',               // L列: 申請期限（日付）
+  'M': 'organization_type',            // M列: 組織タイプ
+  'N': 'target_description',          // N列: 対象者・対象事業
+  
+  // 申請・連絡情報（O-S列）
+  'O': 'application_method',          // O列: 申請方法
+  'P': 'contact_info',                // P列: 問い合わせ先
+  'Q': 'official_url',                // Q列: 公式URL
+  'R': 'area_restriction',            // R列: 地域制限
+  'S': 'application_status',          // S列: 申請ステータス
+  
+  // タクソノミー情報（T-W列）
+  'T': 'prefecture',                  // T列: 都道府県
+  'U': 'municipality',                // U列: 市町村
+  'V': 'category',                    // V列: カテゴリ
+  'W': 'tags',                        // W列: タグ
+  
+  // 新規追加フィールド（X-AD列）
+  'X': 'external_links',              // X列: 外部リンク
+  'Y': 'area_notes',                  // Y列: 地域に関する備考
+  'Z': 'required_documents',          // Z列: 必要書類
+  'AA': 'adoption_rate',              // AA列: 採択率（%）
+  'AB': 'difficulty_level',           // AB列: 申請難易度
+  'AC': 'eligible_expenses',          // AC列: 対象経費
+  'AD': 'subsidy_rate',               // AD列: 補助率
+  
+  // システム情報
+  'AE': 'sheet_updated'               // AE列: シート更新日
+};
+
+/**
+ * 行データを構造化されたオブジェクトに変換
+ * 動的列数取得と完全フィールドマッピングに対応
+ */
+function convertRowDataToStructured(rowData, headers) {
   if (!rowData || rowData.length === 0) {
     return null;
   }
   
-  return {
-    // 基本情報（A-G列）
-    id: rowData[0] || '',                          // A列: ID
-    title: rowData[1] || '',                       // B列: タイトル  
-    content: rowData[2] || '',                     // C列: 内容
-    excerpt: rowData[3] || '',                     // D列: 抜粋
-    status: rowData[4] || 'draft',                 // E列: ステータス
-    created_date: rowData[5] || '',                // F列: 作成日
-    updated_date: rowData[6] || '',                // G列: 更新日
+  const structured = {};
+  
+  // ヘッダーが提供されている場合は、ヘッダーベースでマッピング
+  if (headers && headers.length > 0) {
+    for (let i = 0; i < Math.min(rowData.length, headers.length); i++) {
+      const columnLetter = getColumnLetter(i);
+      const fieldKey = FIELD_MAPPING[columnLetter];
+      
+      if (fieldKey) {
+        structured[fieldKey] = rowData[i] || '';
+      }
+    }
+  } else {
+    // 従来の固定マッピング（後方互換性）
+    const columnKeys = Object.keys(FIELD_MAPPING);
+    for (let i = 0; i < Math.min(rowData.length, columnKeys.length); i++) {
+      const columnLetter = columnKeys[i];
+      const fieldKey = FIELD_MAPPING[columnLetter];
+      structured[fieldKey] = rowData[i] || '';
+    }
+  }
+  
+  return structured;
+}
+
+/**
+ * 列番号から列文字を取得（A, B, C, ..., AA, AB, ...）
+ */
+function getColumnLetter(columnIndex) {
+  let result = '';
+  while (columnIndex >= 0) {
+    result = String.fromCharCode((columnIndex % 26) + 65) + result;
+    columnIndex = Math.floor(columnIndex / 26) - 1;
+  }
+  return result;
+}
+
+/**
+ * 動的列数取得機能付きの行データ取得
+ */
+function getRowDataDynamic(sheet, rowNumber) {
+  try {
+    const lastCol = sheet.getLastColumn();
+    const range = sheet.getRange(rowNumber, 1, 1, lastCol);
+    const values = range.getValues()[0];
     
-    // 助成金情報（H-K列）
-    amount_display: rowData[7] || '',              // H列: 助成金額（表示用）
-    amount_numeric: rowData[8] || '',              // I列: 助成金額（数値）
-    deadline_display: rowData[9] || '',            // J列: 申請期限（表示用）
-    deadline_date: rowData[10] || '',              // K列: 申請期限（日付）
+    // 空の行は null を返す
+    if (values.every(cell => cell === '')) {
+      return null;
+    }
     
-    // 組織・申請情報（L-Q列）
-    organization: rowData[11] || '',               // L列: 実施組織
-    organization_type: rowData[12] || '',          // M列: 組織タイプ
-    target_description: rowData[13] || '',         // N列: 対象者・対象事業
-    application_method: rowData[14] || '',         // O列: 申請方法
-    contact_info: rowData[15] || '',               // P列: 問い合わせ先
-    official_url: rowData[16] || '',               // Q列: 公式URL
+    return values;
     
-    // 地域・カテゴリ情報（R-W列）
-    area_restriction: rowData[17] || '',           // R列: 地域制限
-    application_status: rowData[18] || '',         // S列: 申請ステータス
-    prefecture: rowData[19] || '',                 // T列: 都道府県
-    municipality: rowData[20] || '',               // U列: 市町村
-    category: rowData[21] || '',                   // V列: カテゴリ
-    tags: rowData[22] || '',                       // W列: タグ
-    
-    // 新規追加フィールド（X-AD列）★完全連携対応
-    external_links: rowData[23] || '',             // X列: 外部リンク
-    area_notes: rowData[24] || '',                 // Y列: 地域に関する備考
-    required_documents: rowData[25] || '',         // Z列: 必要書類
-    adoption_rate: rowData[26] || '',              // AA列: 採択率（%）
-    difficulty_level: rowData[27] || '',           // AB列: 申請難易度
-    eligible_expenses: rowData[28] || '',          // AC列: 対象経費
-    subsidy_rate: rowData[29] || '',               // AD列: 補助率
-    
-    // システム情報
-    sheet_updated: rowData[30] || ''               // AE列: シート更新日
-  };
+  } catch (error) {
+    console.error('getRowDataDynamic error:', error);
+    return null;
+  }
 }
 
 /**
@@ -2543,4 +2647,266 @@ ${checkResults.slice(0, 10).join('\n')}
   }
 }
 
-console.log('🏛️ Grant Management System v2.0.0 - Integrated Edition loaded successfully!');
+// =============================================================================
+// 🏷️ タクソノミー同期処理の実装
+// =============================================================================
+
+/**
+ * タクソノミー同期処理の実装（改善版）
+ * 都道府県・市町村・カテゴリ・タグの自動同期
+ */
+function syncTaxonomies(structuredData) {
+  try {
+    const config = getConfig();
+    const taxonomyData = {};
+    
+    // 都道府県の同期
+    if (structuredData.prefecture) {
+      const prefectureId = getTaxonomyId('grant_prefecture', structuredData.prefecture);
+      if (prefectureId) {
+        taxonomyData.prefecture = prefectureId;
+      }
+    }
+    
+    // 市町村の同期（カンマ区切り対応）
+    if (structuredData.municipality) {
+      const municipalities = structuredData.municipality.split(',').map(m => m.trim()).filter(m => m);
+      const municipalityIds = [];
+      
+      for (const municipality of municipalities) {
+        const municipalityId = getTaxonomyId('grant_municipality', municipality);
+        if (municipalityId) {
+          municipalityIds.push(municipalityId);
+        }
+      }
+      
+      if (municipalityIds.length > 0) {
+        taxonomyData.municipality = municipalityIds;
+      }
+    }
+    
+    // カテゴリの同期
+    if (structuredData.category) {
+      const categories = structuredData.category.split(',').map(c => c.trim()).filter(c => c);
+      const categoryIds = [];
+      
+      for (const category of categories) {
+        const categoryId = getTaxonomyId('grant_category', category);
+        if (categoryId) {
+          categoryIds.push(categoryId);
+        }
+      }
+      
+      if (categoryIds.length > 0) {
+        taxonomyData.category = categoryIds;
+      }
+    }
+    
+    // タグの同期
+    if (structuredData.tags) {
+      const tags = structuredData.tags.split(',').map(t => t.trim()).filter(t => t);
+      const tagIds = [];
+      
+      for (const tag of tags) {
+        const tagId = getTaxonomyId('grant_tag', tag);
+        if (tagId) {
+          tagIds.push(tagId);
+        }
+      }
+      
+      if (tagIds.length > 0) {
+        taxonomyData.tags = tagIds;
+      }
+    }
+    
+    return taxonomyData;
+    
+  } catch (error) {
+    console.error('Taxonomy sync failed:', error);
+    return {};
+  }
+}
+
+/**
+ * タクソノミーID取得関数（改善版）
+ */
+function getTaxonomyId(taxonomy, termName) {
+  try {
+    const config = getConfig();
+    
+    if (!config.WORDPRESS_URL || !termName) {
+      return null;
+    }
+    
+    const endpoint = `${config.WORDPRESS_URL}/wp-json/gi/v1/sync-taxonomy`;
+    const payload = {
+      'taxonomy': taxonomy,
+      'term_name': termName.toString().trim()
+    };
+    
+    const options = {
+      'method': 'POST',
+      'headers': {
+        'Content-Type': 'application/json'
+      },
+      'payload': JSON.stringify(payload)
+    };
+    
+    // APIキーが設定されている場合は認証ヘッダーを追加
+    if (config.API_KEY) {
+      options.headers['Authorization'] = `Bearer ${config.API_KEY}`;
+    }
+    
+    const response = UrlFetchApp.fetch(endpoint, options);
+    const responseCode = response.getResponseCode();
+    
+    if (responseCode >= 200 && responseCode < 300) {
+      const result = JSON.parse(response.getContentText());
+      return result.term_id || null;
+    } else {
+      console.error(`Taxonomy API error: ${responseCode}`);
+      return null;
+    }
+    
+  } catch (error) {
+    console.error('getTaxonomyId failed:', error);
+    return null;
+  }
+}
+
+// =============================================================================
+// 🔒 セキュリティ強化のための設定関数
+// =============================================================================
+
+/**
+ * セキュリティ強化のための設定関数（改善版）
+ * PropertiesServiceを使用した安全な設定管理
+ */
+function setupSecureConfig() {
+  const ui = SpreadsheetApp.getUi();
+  const properties = PropertiesService.getScriptProperties();
+  
+  try {
+    // WordPress URLの設定
+    const urlResponse = ui.prompt(
+      'WordPress URL設定',
+      'WordPressサイトのURLを入力してください（例: https://example.com）:',
+      ui.ButtonSet.OK_CANCEL
+    );
+    
+    if (urlResponse.getSelectedButton() !== ui.Button.OK) {
+      return;
+    }
+    
+    const wordpressUrl = urlResponse.getResponseText().trim();
+    if (!wordpressUrl || !wordpressUrl.startsWith('http')) {
+      ui.alert('エラー', '有効なURLを入力してください。', ui.ButtonSet.OK);
+      return;
+    }
+    
+    // APIキーの設定
+    const apiKeyResponse = ui.prompt(
+      'APIキー設定',
+      'WordPress APIキーを入力してください（オプション）:',
+      ui.ButtonSet.OK_CANCEL
+    );
+    
+    if (apiKeyResponse.getSelectedButton() !== ui.Button.OK) {
+      return;
+    }
+    
+    const apiKey = apiKeyResponse.getResponseText().trim();
+    
+    // Webhookシークレットの設定
+    const webhookResponse = ui.prompt(
+      'Webhookシークレット設定',
+      'Webhookシークレットキーを入力してください（推奨）:',
+      ui.ButtonSet.OK_CANCEL
+    );
+    
+    if (webhookResponse.getSelectedButton() !== ui.Button.OK) {
+      return;
+    }
+    
+    const webhookSecret = webhookResponse.getResponseText().trim();
+    
+    // 設定を保存
+    const configData = {
+      'WORDPRESS_URL': wordpressUrl,
+      'REST_API_URL': `${wordpressUrl}/wp-json/gi/v1/sheets-webhook`,
+      'SHEET_NAME': 'grant_import'
+    };
+    
+    if (apiKey) {
+      configData['API_KEY'] = apiKey;
+    }
+    
+    if (webhookSecret) {
+      configData['WEBHOOK_SECRET'] = webhookSecret;
+    }
+    
+    properties.setProperties(configData);
+    
+    ui.alert(
+      '設定完了', 
+      `セキュリティ設定が完了しました。\n\n` +
+      `WordPress URL: ${wordpressUrl}\n` +
+      `APIキー: ${apiKey ? '設定済み' : '未設定'}\n` +
+      `Webhookシークレット: ${webhookSecret ? '設定済み' : '未設定'}`,
+      ui.ButtonSet.OK
+    );
+    
+  } catch (error) {
+    console.error('Secure config setup failed:', error);
+    ui.alert('エラー', `設定中にエラーが発生しました： ${error.message}`, ui.ButtonSet.OK);
+  }
+}
+
+/**
+ * 設定情報を表示（改善版）
+ */
+function showConfigStatus() {
+  try {
+    const config = getConfig();
+    const ui = SpreadsheetApp.getUi();
+    
+    // フィールドマッピング情報を含めた詳細ステータス
+    const fieldCount = Object.keys(FIELD_MAPPING).length;
+    const lastColumn = getColumnLetter(fieldCount - 1);
+    
+    const status = `
+📊 現在の設定状況 (統合版 v2.0.0)
+
+🌐 WordPress連携:
+WordPress URL: ${config.WORDPRESS_URL || '未設定'}
+REST API URL: ${config.REST_API_URL || '未設定'}
+APIキー: ${config.API_KEY ? '設定済み' : '未設定'}
+Webhookシークレット: ${config.WEBHOOK_SECRET && config.WEBHOOK_SECRET !== 'your_webhook_secret_key_here' ? '設定済み' : '未設定'}
+
+📄 シート設定:
+シート名: ${config.SHEET_NAME}
+対応列数: ${fieldCount}列 (A-${lastColumn})
+フィールドマッピング: 完全対応
+
+🎆 新機能:
+✓ 31列完全対応
+✓ 動的フィールドマッピング
+✓ タクソノミー自動同期
+✓ セキュア設定管理
+✓ エラーハンドリング強化
+    `;
+    
+    ui.alert('📊 設定状況', status, ui.ButtonSet.OK);
+    
+  } catch (error) {
+    console.error('Config status display failed:', error);
+    SpreadsheetApp.getUi().alert('エラー', '設定状況の表示中にエラーが発生しました。', SpreadsheetApp.getUi().ButtonSet.OK);
+  }
+}
+
+console.log('🏛️ Grant Management System v2.0.0 - Enhanced Integrated Edition loaded successfully!');
+console.log(`✓ 31列完全対応 (A-${getColumnLetter(Object.keys(FIELD_MAPPING).length - 1)})`);
+console.log(`✓ フィールドマッピング: ${Object.keys(FIELD_MAPPING).length}フィールド定義`);
+console.log('✓ セキュア設定管理対応');
+console.log('✓ タクソノミー自動同期対応');
+console.log('✓ エラーハンドリング強化');

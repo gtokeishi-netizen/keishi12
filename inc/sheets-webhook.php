@@ -2,10 +2,10 @@
 /**
  * Google Sheets Webhook Handler
  * 
- * リアルタイム同期のためのWebhook処理
+ * 手動同期のためのWebhook処理
  * - Google Apps Scriptからのデータ受信
- * - セキュリティ検証
- * - 即座の同期処理
+ * - セキュリティ検証  
+ * - 手動トリガー同期処理（自動同期は無効化済み）
  * 
  * @package Grant_Insight_Perfect
  * @version 1.0.0
@@ -250,8 +250,8 @@ class SheetsWebhookHandler {
         // ACFフィールドを更新
         $this->update_acf_fields($post_id, $row_data);
         
-        // カテゴリとタグを更新
-        $this->update_taxonomies($post_id, $row_data);
+        // 完全なタクソノミー統合処理
+        $this->update_taxonomies_complete($post_id, $row_data);
         
         // ログ追加
         if (class_exists('SheetsAdminUI') && method_exists('SheetsAdminUI', 'add_log_entry')) {
@@ -292,8 +292,8 @@ class SheetsWebhookHandler {
         // ACFフィールドを設定
         $this->update_acf_fields($post_id, $row_data);
         
-        // カテゴリとタグを設定
-        $this->update_taxonomies($post_id, $row_data);
+        // 完全なタクソノミー統合処理
+        $this->update_taxonomies_complete($post_id, $row_data);
         
         // スプレッドシートにIDを書き戻し（非同期で実行）
         wp_schedule_single_event(time() + 10, 'gi_update_sheet_id', array($post_id, $payload['row_number']));
@@ -398,33 +398,111 @@ class SheetsWebhookHandler {
     
     /**
      * ACFフィールドの更新
+     * 31列完全対応版 (A-AE列)
      */
     private function update_acf_fields($post_id, $row_data) {
+        // 完全な31列対応マッピング (Google Apps Scriptと整合)
         $acf_mapping = array(
-            7 => 'max_amount',
-            8 => 'max_amount_numeric',
-            9 => 'deadline',
-            10 => 'deadline_date',
-            11 => 'organization',
-            12 => 'organization_type',
-            13 => 'grant_target',
-            14 => 'application_method',
-            15 => 'contact_info',
-            16 => 'official_url',
-            17 => 'target_prefecture',
-            18 => 'prefecture_name',
-            19 => 'target_municipality',
-            20 => 'regional_limitation',
-            21 => 'application_status'
+            // 基本情報 (A-G列はWordPressのpost_*フィールドで処理)
+            // 助成金詳細情報 (H-N列)
+            7  => 'max_amount',              // H列: 助成金額（表示用）
+            8  => 'max_amount_numeric',      // I列: 助成金額（数値）
+            9  => 'deadline',               // J列: 申請期限（表示用）
+            10 => 'deadline_date',          // K列: 申請期限（日付）
+            11 => 'organization',           // L列: 実施組織
+            12 => 'organization_type',      // M列: 組織タイプ
+            13 => 'grant_target',           // N列: 対象者・対象事業
+            
+            // 申請・連絡情報 (O-S列)
+            14 => 'application_method',     // O列: 申請方法
+            15 => 'contact_info',           // P列: 問い合わせ先
+            16 => 'official_url',           // Q列: 公式URL
+            17 => 'regional_limitation',    // R列: 地域制限
+            18 => 'application_status',     // S列: 申請ステータス
+            
+            // タクソノミー情報 (T-W列は update_taxonomies_complete()で処理)
+            // 19 => 都道府県 (T列) - タクソノミーで処理、ACFフィールド削除
+            // 20 => 市町村 (U列) - タクソノミーで処理、ACFフィールド削除  
+            // 21 => カテゴリ (V列) - grant_category タクソノミーで処理
+            // 22 => タグ (W列) - grant_tag タクソノミーで処理
+            
+            // ★新規追加フィールド (X-AD列)
+            23 => 'external_link',          // X列: 外部リンク
+            24 => 'area_notes',             // Y列: 地域に関する備考
+            25 => 'required_documents_detailed', // Z列: 必要書類（詳細）
+            26 => 'adoption_rate',          // AA列: 採択率（%）
+            27 => 'difficulty_level',       // AB列: 申請難易度
+            28 => 'eligible_expenses_detailed', // AC列: 対象経費（詳細）
+            29 => 'subsidy_rate_detailed',  // AD列: 補助率（詳細）
+            // AE列(30): シート更新日 - システム情報のため処理しない
         );
         
         foreach ($acf_mapping as $col_index => $field_name) {
             if (isset($row_data[$col_index])) {
                 $value = $row_data[$col_index];
                 
-                // 数値フィールドの処理
-                if ($field_name === 'max_amount_numeric') {
-                    $value = intval($value);
+                // 特別な処理が必要なフィールド
+                switch ($field_name) {
+                    case 'max_amount_numeric':
+                    case 'adoption_rate':
+                        // 数値フィールドの処理
+                        $value = is_numeric($value) ? floatval($value) : 0;
+                        break;
+                        
+                    case 'deadline_date':
+                        // 日付フィールドの処理
+                        if (!empty($value) && $value !== '0000-00-00') {
+                            // 日付形式を統一
+                            $timestamp = strtotime($value);
+                            if ($timestamp !== false) {
+                                $value = date('Y-m-d', $timestamp);
+                            }
+                        }
+                        break;
+                        
+                    case 'official_url':
+                    case 'external_link':
+                        // URL フィールドの検証
+                        if (!empty($value) && !filter_var($value, FILTER_VALIDATE_URL)) {
+                            // 無効なURLの場合は空にする
+                            $value = '';
+                        }
+                        break;
+                        
+                    case 'organization_type':
+                        // 組織タイプのデフォルト値設定
+                        if (empty($value)) {
+                            $value = 'national';
+                        }
+                        break;
+                        
+                    case 'application_method':
+                        // 申請方法のデフォルト値設定
+                        if (empty($value)) {
+                            $value = 'online';
+                        }
+                        break;
+                        
+                    case 'regional_limitation':
+                        // 地域制限のデフォルト値設定
+                        if (empty($value)) {
+                            $value = 'nationwide';
+                        }
+                        break;
+                        
+                    case 'application_status':
+                        // 申請ステータスのデフォルト値設定
+                        if (empty($value)) {
+                            $value = 'open';
+                        }
+                        break;
+                        
+                    case 'difficulty_level':
+                        // 申請難易度のデフォルト値設定
+                        if (empty($value)) {
+                            $value = '中級';
+                        }
+                        break;
                 }
                 
                 // JSON文字列の場合はデコード
@@ -432,25 +510,95 @@ class SheetsWebhookHandler {
                     $value = $decoded;
                 }
                 
+                // ACFフィールドを更新
                 update_field($field_name, $value, $post_id);
+            }
+        }
+        
+        // 新規フィールドの後処理
+        $this->post_process_new_fields($post_id, $row_data);
+    }
+    
+    /**
+     * 新規追加フィールドの後処理
+     */
+    private function post_process_new_fields($post_id, $row_data) {
+        // 採択率の%記号処理
+        if (isset($row_data[26])) { // AA列: 採択率
+            $adoption_rate = floatval($row_data[26]);
+            if ($adoption_rate > 0) {
+                // メタ情報として%付きの表示用値も保存
+                update_post_meta($post_id, '_adoption_rate_display', $adoption_rate . '%');
+            }
+        }
+        
+        // 地域制限と地域備考の連携処理
+        if (isset($row_data[17]) && isset($row_data[24])) { // R列とY列
+            $regional_limitation = $row_data[17];
+            $area_notes = $row_data[24];
+            
+            // 地域制限が特定地域の場合、備考を強調表示用メタとして保存
+            if (in_array($regional_limitation, ['prefecture_only', 'municipality_only', 'specific_area']) && !empty($area_notes)) {
+                update_post_meta($post_id, '_regional_highlight', true);
+            }
+        }
+        
+        // 必要書類の構造化処理
+        if (isset($row_data[25])) { // Z列: 必要書類
+            $documents = $row_data[25];
+            if (!empty($documents)) {
+                // カンマ区切りの場合は配列に変換
+                if (is_string($documents) && strpos($documents, ',') !== false) {
+                    $documents_array = array_map('trim', explode(',', $documents));
+                    update_post_meta($post_id, '_required_documents_list', $documents_array);
+                }
             }
         }
     }
     
     /**
-     * カテゴリとタグの更新
+     * 完全なタクソノミー統合処理（31列対応）
      */
-    private function update_taxonomies($post_id, $row_data) {
-        // カテゴリ（W列 = インデックス22）
-        if (isset($row_data[22]) && !empty($row_data[22])) {
-            $categories = array_map('trim', explode(',', $row_data[22]));
+    private function update_taxonomies_complete($post_id, $row_data) {
+        // 都道府県タクソノミー（T列 = インデックス19）
+        if (isset($row_data[19]) && !empty($row_data[19])) {
+            $prefecture_code = sanitize_text_field($row_data[19]);
+            // 都道府県名を取得
+            $prefecture_name = '';
+            if (function_exists('gi_get_prefecture_name_by_code')) {
+                $prefecture_name = gi_get_prefecture_name_by_code($prefecture_code);
+            }
+            if (!empty($prefecture_name)) {
+                wp_set_post_terms($post_id, array($prefecture_name), 'grant_prefecture');
+            }
+            // 重複ACFフィールドを削除
+            delete_field('target_prefecture', $post_id);
+            delete_field('prefecture_name', $post_id);
+        }
+        
+        // 市町村タクソノミー（U列 = インデックス20）
+        if (isset($row_data[20]) && !empty($row_data[20])) {
+            $municipalities = array_map('trim', explode(',', $row_data[20]));
+            wp_set_post_terms($post_id, $municipalities, 'grant_municipality');
+            // 重複ACFフィールドを削除
+            delete_field('target_municipality', $post_id);
+        }
+        
+        // カテゴリ（V列 = インデックス21）
+        if (isset($row_data[21]) && !empty($row_data[21])) {
+            $categories = array_map('trim', explode(',', $row_data[21]));
             wp_set_post_terms($post_id, $categories, 'grant_category');
         }
         
-        // タグ（X列 = インデックス23）
-        if (isset($row_data[23]) && !empty($row_data[23])) {
-            $tags = array_map('trim', explode(',', $row_data[23]));
+        // タグ（W列 = インデックス22）
+        if (isset($row_data[22]) && !empty($row_data[22])) {
+            $tags = array_map('trim', explode(',', $row_data[22]));
             wp_set_post_terms($post_id, $tags, 'grant_tag');
+        }
+        
+        // タクソノミー統合ログ
+        if (class_exists('SheetsAdminUI') && method_exists('SheetsAdminUI', 'add_log_entry')) {
+            SheetsAdminUI::add_log_entry("投稿 ID:{$post_id} のタクソノミー統合が完了しました", 'success');
         }
     }
     

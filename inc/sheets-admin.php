@@ -116,33 +116,10 @@ class SheetsAdminUI {
     }
     
     /**
-     * 設定の登録
+     * 設定の登録（自動同期機能は削除済み）
      */
     public function register_settings() {
-        register_setting('gi_sheets_settings', 'gi_sheets_config');
-        
-        add_settings_section(
-            'gi_sheets_main',
-            'Google Sheets設定',
-            array($this, 'settings_section_callback'),
-            'gi_sheets_settings'
-        );
-        
-        add_settings_field(
-            'auto_sync_enabled',
-            '自動同期を有効化',
-            array($this, 'auto_sync_field_callback'),
-            'gi_sheets_settings',
-            'gi_sheets_main'
-        );
-        
-        add_settings_field(
-            'sync_interval',
-            '同期間隔（分）',
-            array($this, 'sync_interval_field_callback'),
-            'gi_sheets_settings',
-            'gi_sheets_main'
-        );
+        // 自動同期設定は削除されました - 手動同期のみ利用可能
     }
     
     /**
@@ -244,11 +221,11 @@ class SheetsAdminUI {
             
             <!-- フィールドバリデーション設定カード -->
             <div class="gi-sheets-card">
-                <h2>📋 フィールドマッピング & バリデーション設定</h2>
+                <h2>📋 フィールドマッピング & バリデーション設定（31列完全対応）</h2>
                 <div class="gi-validation-info">
                     <p class="description">
-                        スプレッドシートの選択肢フィールドにプルダウンメニューを設定して、入力ミスを防ぎます。<br>
-                        英語のフィールド名に対応する日本語説明も表示されます。
+                        <strong>🎯 31列完全対応</strong>：スプレッドシートの選択肢フィールドにプルダウンメニューを設定して、入力ミスを防ぎます。<br>
+                        <span class="description">A列-AE列まで31列すべてのフィールドマッピングが完了し、タクソノミー連携（都道府県・市町村・カテゴリ・タグ）と新規拡張フィールドに対応しています。</span>
                     </p>
                     
                     <div class="gi-field-mapping">
@@ -273,7 +250,7 @@ class SheetsAdminUI {
                                     <td><strong>M列</strong></td>
                                     <td>組織タイプ</td>
                                     <td><code>organization_type</code></td>
-                                    <td>national（国・省庁）/ prefecture（都道府県）/ city（市区町村）/ public_org（公的機関）/ private_org（民間団体）/ foundation（財団法人）/ jgrants（Jグランツ）/ other（その他）</td>
+                                    <td>national（国・省庁）/ prefecture（都道府県）/ city（市区町村）/ public_org（公的機関）/ private_org（民間団体）/ foundation（財団法人）/ other（その他）</td>
                                 </tr>
                                 <tr>
                                     <td><strong>O列</strong></td>
@@ -314,8 +291,56 @@ class SheetsAdminUI {
                                 <tr style="background: #e8f5e8;">
                                     <td><strong>W列 ⭐完全連携</strong></td>
                                     <td>🏷️ タグ</td>
-                                    <td><code>post_tag</code></td>
+                                    <td><code>grant_tag</code></td>
                                     <td>スタートアップ、AI、環境等（WordPressタグ、カンマ区切り可能）</td>
+                                </tr>
+                                <tr style="background: #fff8dc;">
+                                    <td><strong>X列 ⭐新規</strong></td>
+                                    <td>🔗 外部リンク</td>
+                                    <td><code>external_link</code></td>
+                                    <td>参考URL、関連サイトのリンク（URL形式）</td>
+                                </tr>
+                                <tr style="background: #fff8dc;">
+                                    <td><strong>Y列 ⭐新規</strong></td>
+                                    <td>📍 地域に関する備考</td>
+                                    <td><code>area_notes</code></td>
+                                    <td>地域制限の詳細説明・特記事項</td>
+                                </tr>
+                                <tr style="background: #fff8dc;">
+                                    <td><strong>Z列 ⭐新規</strong></td>
+                                    <td>📋 必要書類（詳細）</td>
+                                    <td><code>required_documents_detailed</code></td>
+                                    <td>申請に必要な書類の詳細リスト</td>
+                                </tr>
+                                <tr style="background: #fff8dc;">
+                                    <td><strong>AA列 ⭐新規</strong></td>
+                                    <td>📊 採択率（%）</td>
+                                    <td><code>adoption_rate</code></td>
+                                    <td>0-100の数値（過去実績に基づく採択率）</td>
+                                </tr>
+                                <tr style="background: #fff8dc;">
+                                    <td><strong>AB列 ⭐新規</strong></td>
+                                    <td>⚡ 申請難易度</td>
+                                    <td><code>difficulty_level</code></td>
+                                    <td>初級 / 中級 / 上級 / 非常に高い</td>
+                                </tr>
+                                <tr style="background: #fff8dc;">
+                                    <td><strong>AC列 ⭐新規</strong></td>
+                                    <td>💰 対象経費（詳細）</td>
+                                    <td><code>eligible_expenses_detailed</code></td>
+                                    <td>補助対象となる経費の詳細説明</td>
+                                </tr>
+                                <tr style="background: #fff8dc;">
+                                    <td><strong>AD列 ⭐新規</strong></td>
+                                    <td>💸 補助率（詳細）</td>
+                                    <td><code>subsidy_rate_detailed</code></td>
+                                    <td>補助率の詳細（例：1/2以内、上限100万円）</td>
+                                </tr>
+                                <tr style="background: #f0f0f0;">
+                                    <td><strong>AE列</strong></td>
+                                    <td>⏰ シート更新日</td>
+                                    <td><code>sheet_updated</code></td>
+                                    <td>システム自動入力（編集不可）</td>
                                 </tr>
                             </tbody>
                         </table>
@@ -494,20 +519,20 @@ class SheetsAdminUI {
                         <li>A列（ID）は空欄のままにする（自動的に割り当てられます）</li>
                         <li>B列以降に投稿データを入力</li>
                         <li>E列のステータスを「publish」「draft」「private」のいずれかに設定</li>
-                        <li>手動同期または自動同期でWordPressに反映</li>
+                        <li>手動同期でWordPressに反映</li>
                     </ol>
                     
                     <h4>既存投稿の編集</h4>
                     <ol>
                         <li>該当する投稿のIDを確認</li>
                         <li>その行の内容を編集</li>
-                        <li>手動同期または自動同期でWordPressに反映</li>
+                        <li>手動同期でWordPressに反映</li>
                     </ol>
                     
                     <h4>投稿の削除</h4>
                     <ol>
                         <li>該当する投稿のE列（ステータス）を「deleted」に変更</li>
-                        <li>手動同期または自動同期でWordPressから削除</li>
+                        <li>手動同期でWordPressから削除</li>
                     </ol>
                     
                     <div class="notice notice-info">
@@ -538,42 +563,7 @@ class SheetsAdminUI {
         echo '<p>自動同期の設定を行います。</p>';
     }
     
-    /**
-     * 自動同期有効化フィールド
-     */
-    public function auto_sync_field_callback() {
-        $config = get_option('gi_sheets_config', array());
-        $enabled = isset($config['auto_sync_enabled']) ? $config['auto_sync_enabled'] : true;
-        
-        echo '<label>';
-        echo '<input type="checkbox" name="gi_sheets_config[auto_sync_enabled]" value="1" ' . checked(1, $enabled, false) . '>';
-        echo ' 自動同期を有効にする';
-        echo '</label>';
-        echo '<p class="description">無効にすると手動同期のみになります。</p>';
-    }
-    
-    /**
-     * 同期間隔フィールド
-     */
-    public function sync_interval_field_callback() {
-        $config = get_option('gi_sheets_config', array());
-        $interval = isset($config['sync_interval']) ? $config['sync_interval'] : 5;
-        
-        echo '<select name="gi_sheets_config[sync_interval]">';
-        $intervals = array(
-            1 => '1分',
-            5 => '5分',
-            15 => '15分',
-            30 => '30分',
-            60 => '1時間'
-        );
-        
-        foreach ($intervals as $value => $label) {
-            echo '<option value="' . esc_attr($value) . '" ' . selected($interval, $value, false) . '>' . esc_html($label) . '</option>';
-        }
-        echo '</select>';
-        echo '<p class="description">自動同期の実行間隔を設定します。</p>';
-    }
+    // 自動同期設定メソッドは削除されました - 手動同期のみ
     
     /**
      * 同期ログを表示

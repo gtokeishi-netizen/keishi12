@@ -1,14 +1,14 @@
 <?php
 /**
- * Grant Insight Perfect - Functions File Loader (Cleanup Edition)
+ * Grant Insight Perfect - Functions File (Consolidated & Clean Edition)
  * 
- * ファイル整理により不要ファイルを削除、8個に整理
- * - 重複ファイル削除（ajax-functions系の3ファイル → 1ファイル）
- * - ファイル名をわかりやすくリネーム
- * - 機能別にファイルを整理・最適化
+ * Simplified structure with consolidated files in single /inc/ directory
+ * - Removed unused code and duplicate functionality
+ * - Merged related files for better organization
+ * - Eliminated folder over-organization
  * 
  * @package Grant_Insight_Perfect
- * @version 8.1.0
+ * @version 9.0.0 (Consolidated Edition)
  */
 
 // セキュリティチェック
@@ -16,60 +16,53 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-// テーマバージョン定数（ファイル整理版）
+// テーマバージョン定数
 if (!defined('GI_THEME_VERSION')) {
-    define('GI_THEME_VERSION', '8.1.0');
+    define('GI_THEME_VERSION', '9.0.0');
 }
 if (!defined('GI_THEME_PREFIX')) {
     define('GI_THEME_PREFIX', 'gi_');
 }
 
-// 機能ファイルの読み込み
+// 統合されたファイルの読み込み（シンプルな配列）
 $inc_dir = get_template_directory() . '/inc/';
 
-// 論理的なディレクトリ構造でファイルを整理
 $required_files = array(
-    // Core foundation files
-    'core/theme-foundation.php',     // テーマ設定、投稿タイプ、タクソノミー
-    'core/data-processing.php',      // データ処理・ヘルパー関数
+    // Core files
+    'theme-foundation.php',        // テーマ設定、投稿タイプ、タクソノミー
+    'data-processing.php',         // データ処理・ヘルパー関数
     
-    // Admin interface files  
-    'admin/admin-customization.php',  // 管理画面カスタマイズ
-    'admin/fields-configuration.php', // ACF設定とフィールド定義
-    'admin/sheets-admin-ui.php',     // Google Sheets管理UI
-    'admin/post-metaboxes.php',      // 投稿編集画面メタボックス
+    // Admin & UI
+    'admin-functions.php',         // 管理画面カスタマイズ + メタボックス (統合済み)
+    'acf-fields.php',              // ACF設定とフィールド定義
     
-    // Feature files
-    'features/card-rendering.php',       // カードレンダリング・表示機能
-    'features/ajax-handlers.php',        // AJAX処理
-    'features/search-integration.php',   // AI機能・検索履歴
-    'features/enhanced-ai-generator.php', // 高度なAI生成機能
-    'features/google-sheets-sync.php',   // Google Sheets統合
-    'features/sheets-webhook.php',       // Webhook処理
-    'features/sheets-initializer.php'    // スプレッドシート初期化
+    // Core functionality
+    'card-display.php',            // カードレンダリング・表示機能
+    'ajax-functions.php',          // AJAX処理
+    // 'ai-functions.php',            // AI機能削除済み
+    
+    // Google Sheets integration
+    'sheets-sync.php',             // Google Sheets統合（手動同期のみ）
+    'sheets-webhook.php',          // Webhook処理
+    'sheets-init.php',             // スプレッドシート初期化
+    'sheets-admin.php',            // Google Sheets管理UI
+    'safe-sync-manager.php',       // 安全同期管理システム
+    'disable-auto-sync.php',       // 自動同期無効化
+    
+    // Municipality system
+    'municipality-functions.php'   // 市町村自動反映システム
 );
 
-// 各ファイルを安全に読み込み
+// ファイルを安全に読み込み
 foreach ($required_files as $file) {
     $file_path = $inc_dir . $file;
     if (file_exists($file_path)) {
         require_once $file_path;
     } else {
-        // デバッグモードの場合はエラーログに記録
+        // デバッグモードの場合のみエラーログに記録
         if (defined('WP_DEBUG') && WP_DEBUG) {
-
+            error_log('Grant Insight: Missing required file: ' . $file);
         }
-    }
-}
-
-// 統一カードレンダラーは display-functions.php に統合済み
-// テンプレートファイルのチェック
-$card_unified_path = get_template_directory() . '/template-parts/grant-card-unified.php';
-if (file_exists($card_unified_path)) {
-    require_once $card_unified_path;
-} else {
-    if (defined('WP_DEBUG') && WP_DEBUG) {
-
     }
 }
 
@@ -89,39 +82,20 @@ if (!function_exists('gi_render_card')) {
 /**
  * テーマの最終初期化
  */
-function gi_final_init() {  // ✅ 修正
+function gi_final_init() {
     if (defined('WP_DEBUG') && WP_DEBUG) {
-
+        error_log('Grant Insight: Theme initialized successfully v' . GI_THEME_VERSION);
     }
 }
 add_action('wp_loaded', 'gi_final_init', 999);
-
-// REMOVED: Duplicate Google Sheets admin menu registration
-// The SheetsAdminUI class handles menu registration properly
-// This duplicate registration was causing Fatal errors
-
-// REMOVED: Duplicate Google Sheets admin page content function
-// The SheetsAdminUI class provides the proper admin interface
-// This duplicate function was conflicting with the class-based approach
-
-// Excel管理機能は削除済み - 権限バイパスコードも不要
-
-
-
-// 以下のコードはそのまま...
-
 
 /**
  * クリーンアップ処理
  */
 function gi_theme_cleanup() {
-    // オプションの削除
+    // 不要なオプションの削除
     delete_option('gi_login_attempts');
-    
-    // モバイル最適化キャッシュのクリア
     delete_option('gi_mobile_cache');
-    
-    // トランジェントのクリア
     delete_transient('gi_site_stats_v2');
     
     // オブジェクトキャッシュのフラッシュ（存在する場合のみ）
@@ -131,10 +105,8 @@ function gi_theme_cleanup() {
 }
 add_action('switch_theme', 'gi_theme_cleanup');
 
-
-
 /**
- * スクリプトにdefer属性を追加（改善版）
+ * スクリプトにdefer属性を追加（最適化版）
  */
 if (!function_exists('gi_add_defer_attribute')) {
     function gi_add_defer_attribute($tag, $handle, $src) {
@@ -172,10 +144,8 @@ if (!function_exists('gi_add_defer_attribute')) {
 remove_filter('script_loader_tag', 'gi_add_defer_attribute', 10);
 add_filter('script_loader_tag', 'gi_add_defer_attribute', 10, 3);
 
-// モバイル専用テンプレート切り替えは削除（統合されました）
-
 /**
- * モバイル用AJAX エンドポイント - さらに読み込み
+ * モバイル用AJAX - さらに読み込み
  */
 function gi_ajax_load_more_grants() {
     check_ajax_referer('gi_ajax_nonce', 'nonce');
@@ -268,18 +238,15 @@ if (!function_exists('gi_log_error')) {
 }
 
 /**
- * 外部連携機能関連Cronタスクの無効化（削除後の安全確保）
+ * 削除された機能のCronタスクを無効化
  */
 add_action('init', function() {
-    // 削除された外部連携機能関連のCronフックを無効化
-    $external_cron_hooks = array(
+    $deprecated_cron_hooks = array(
         'giji_auto_import_hook',        // J-Grants (削除済み)
         'gi_excel_auto_export_hook'     // Excel (削除済み)
-        // gi_sheets_sync_cron は現在アクティブなので削除しない
     );
     
-    foreach ($external_cron_hooks as $hook) {
-        // スケジュールされたイベントを全てクリア
+    foreach ($deprecated_cron_hooks as $hook) {
         wp_clear_scheduled_hook($hook);
     }
 });
@@ -311,8 +278,6 @@ if (!function_exists('gi_update_theme_option')) {
     }
 }
 
-
-
 /**
  * テーマのバージョンアップグレード処理
  */
@@ -320,17 +285,11 @@ function gi_theme_version_upgrade() {
     $current_version = get_option('gi_installed_version', '0.0.0');
     
     if (version_compare($current_version, GI_THEME_VERSION, '<')) {
-        // バージョンアップグレード処理
-        
-        // 6.2.0 -> 6.2.1 のアップグレード
-        if (version_compare($current_version, '6.2.1', '<')) {
+        // 9.0.0への統合アップグレード
+        if (version_compare($current_version, '9.0.0', '<')) {
             // キャッシュのクリア
             gi_theme_cleanup();
-        }
-        
-        // 6.2.1 -> 6.2.2 のアップグレード
-        if (version_compare($current_version, '6.2.2', '<')) {
-            // 新しいメタフィールドの追加など
+            // URLリライト更新
             flush_rewrite_rules();
         }
         
@@ -341,7 +300,7 @@ function gi_theme_version_upgrade() {
         if (is_admin()) {
             add_action('admin_notices', function() {
                 echo '<div class="notice notice-success is-dismissible"><p>';
-                echo 'Grant Insight テーマが v' . GI_THEME_VERSION . ' にアップグレードされました。';
+                echo 'Grant Insight テーマが v' . GI_THEME_VERSION . ' (Consolidated Edition) にアップグレードされました。';
                 echo '</p></div>';
             });
         }
@@ -374,11 +333,9 @@ function gi_create_database_tables() {
         KEY created_at (created_at)
     ) $charset_collate;";
     
-
-    
     // ユーザー設定テーブル
     $user_preferences_table = $wpdb->prefix . 'gi_user_preferences';
-    $sql4 = "CREATE TABLE IF NOT EXISTS $user_preferences_table (
+    $sql2 = "CREATE TABLE IF NOT EXISTS $user_preferences_table (
         id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
         user_id bigint(20) unsigned NOT NULL,
         preference_key varchar(100) NOT NULL,
@@ -390,7 +347,7 @@ function gi_create_database_tables() {
     
     require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
     dbDelta($sql1);
-    dbDelta($sql4);
+    dbDelta($sql2);
     
     // バージョン管理
     update_option('gi_db_version', '1.0.0');
@@ -407,12 +364,10 @@ add_action('init', function() {
     }
 });
 
-// 検索履歴関数は inc/ai-functions.php に移動
-
-
-
-
-
-/**
- * AJAXハンドラーの登録確認
- */
+// デバッグ情報の出力
+if (defined('WP_DEBUG') && WP_DEBUG) {
+    add_action('admin_footer', function() {
+        echo '<!-- Grant Insight: Consolidated version v' . GI_THEME_VERSION . ' loaded successfully -->';
+        echo '<!-- Files loaded: ' . count($required_files) . ' -->';
+    });
+}
